@@ -1,51 +1,73 @@
 # find-unified
 
-统一知识检索系统。将本地 Markdown 文件、MCP 知识库、SQLite 数据库聚合为单一检索接口，通过 LLM 生成回答，并提供 Web 管理后台和多 AI 工具适配器。
+> 统一知识检索系统：将本地 Markdown 文件、MCP 知识库、SQLite 数据库聚合为单一检索接口，通过 LLM 生成流式回答，并提供 Web 聊天界面和管理后台。
 
 ---
 
-## 架构概览
+## 项目是什么
+
+企业内部往往存在大量分散的知识——技术文档放在 Git 仓库、产品知识存在数据库、外部服务通过 MCP 协议暴露。find-unified 把这三类来源统一聚合，用户只需在聊天界面输入自然语言问题，系统会：
+
+1. 并行检索三个数据源，对结果打分融合
+2. 将检索到的证据片段送入 Claude 生成回答
+3. 通过 SSE 实时流式输出答案，并标注引用来源
+
+---
+
+## 整体架构
+
+```
+┌─────────────────────────────────────────────────┐
+│              用户 / AI 工具                      │
+│   Web 聊天界面  │  Claude Code  │  Cursor        │
+└────────────────┬────────────────────────────────┘
+                 │ HTTP / SSE
+                 ▼
+┌────────────────────────────────────────────────────┐
+│                   apps/api（:3001）                 │
+│  认证 · 对话历史 · Skill 管道 · LLM 流式回答        │
+└───────────────────┬────────────────────────────────┘
+                    │ HTTP
+                    ▼
+┌────────────────────────────────────────────────────┐
+│              services/find-core（:8787）            │
+│           三源并行检索 + BM25 融合排序               │
+│                                                    │
+│  ┌──────────┐  ┌──────────┐  ┌──────────────────┐ │
+│  │  local   │  │   MCP    │  │       DB         │ │
+│  │ .md 文件  │  │ 外部知识库│  │ knowledge_       │ │
+│  │  扫描    │  │ 协议调用  │  │ articles 表      │ │
+│  └──────────┘  └──────────┘  └──────────────────┘ │
+└────────────────────────────────────────────────────┘
+```
+
+### 目录结构
 
 ```
 find-unified/
 ├── apps/
-│   ├── api/              # Fastify REST API（主后端）
-│   └── web/              # Next.js 前端（聊天界面 + 管理后台）
+│   ├── api/          # Fastify REST API（主后端，:3001）
+│   └── web/          # Next.js 前端（聊天 + 管理后台，:3000）
 ├── services/
-│   ├── find-core/        # 检索核心引擎（独立微服务，端口 8787）
-│   └── mcp-mock/         # MCP mock 服务（本地测试用，端口 9090）
-├── adapters/             # AI 工具适配器配置（Claude Code / Cursor / Opencode）
-└── contracts/            # API 接口契约（JSON Schema 文档）
-```
-
-### 请求链路
-
-```
-AI 工具 / Web 前端
-      │
-      ▼
-  apps/api  
-  （认证 / 对话历史 / Skill 指令 / LLM 流式回答）     
-      │                                               
-      ▼                                               
- services/find-core                            
- （三源并行检索 + 结果融合）                    
-  ├── local：扫描本地 Markdown 文件
-  ├── mcp：  通过 MCP 协议查询外部知识库
-  └── db：   查询 SQLite 数据库
+│   ├── find-core/    # 检索核心微服务（:8787）
+│   └── mcp-mock/     # 本地 MCP 测试服务（:9090）
+├── adapters/         # Claude Code / Cursor / Opencode 适配配置
+└── contracts/        # API 接口 JSON Schema 契约
 ```
 
 ---
 
-## 功能特性
+## 核心功能
 
-- **三源聚合检索**：同时查询本地文件、MCP 服务、SQLite
-- **LLM 流式回答**：证据送入 Claude，通过 SSE 实时流式输出答案
-- **多平台支持**：`claude_code`、`opencode`、`cursor`（spawn CLI 进程）
-- **Skill 系统**：可插拔的检索增强管道，分 pre_search / post_search 阶段
-- **对话历史**：基于 SQLite 的多轮会话记忆，支持上下文联系
-- **管理后台**：Web UI 配置数据源、管理 Skill、上传文档、查看审计日志
-- **HTTP 文档上传**：通过 `/admin/sync` 页面直接上传 Markdown 文件到检索目录
+| 功能 | 说明 |
+|------|------|
+| **三源聚合检索** | local（Markdown）/ MCP（外部知识库）/ DB（SQLite）并行查询，BM25 加权融合 |
+| **模糊纠错** | 对拼写错误的关键词（如 `cvtt`）自动计算编辑距离，纠正为最近词再检索 |
+| **LLM 流式回答** | 证据片段送入 Claude，通过 SSE 实时输出答案，带引用来源 |
+| **多平台支持** | `find_core`（直连 Anthropic API）/ `claude_code` / `cursor` / `opencode`（spawn CLI） |
+| **Skill 管道** | 可插拔的检索增强指令（pre_search / post_search / post_answer 三阶段） |
+| **对话历史** | 多轮会话记忆，基于 SQLite 持久化 |
+| **管理后台** | 配置数据源、管理 Skill、上传文档、查看审计日志 |
 
 ---
 
@@ -54,43 +76,52 @@ AI 工具 / Web 前端
 | 层级 | 技术 |
 |------|------|
 | 运行时 | Node.js ≥ 22，pnpm workspace，Turborepo |
-| API | Fastify 5，Zod，Prisma（SQLite） |
-| 前端 | Next.js 15，Zustand，TanStack Query |
+| API 层 | Fastify 5，Zod 校验，Prisma ORM（SQLite） |
+| 前端 | Next.js 15 App Router，Zustand，TanStack Query |
 | 检索核心 | Fastify，MCP SDK，better-sqlite3 |
-| 数据库 | SQLite（Prisma 管理 + better-sqlite3 直查） |
-| AI | Anthropic SDK（claude-sonnet） |
+| AI | Anthropic SDK（claude-sonnet），支持自定义 base URL |
 | 容器化 | Docker multi-stage build，docker-compose |
 
 ---
 
-## 快速开始（本地开发）
+## 快速开始
 
 ### 前置依赖
 
 - Node.js ≥ 22
 - pnpm ≥ 10
 
-### 安装
+### 1. 安装依赖
 
 ```bash
 pnpm install
 ```
 
-### 环境变量
+### 2. 配置环境变量
 
-复制根目录 `.env` 并按需调整（默认值已可直接使用）：
+根目录已提供 `.env` 示例，按需填写：
 
 ```env
+# 数据库
 DATABASE_URL=file:/tmp/find_unified_dev.db
-ANTHROPIC_API_KEY=sk-ant-...          # 使用 Anthropic API 时填写
-ANTHROPIC_BASE_URL=                    # 使用代理时填写
-FIND_CONFIG_PATH=/path/to/find-unified/services/find-core/config/sources.local.json
+
+# Anthropic API（使用 find_core 平台时必填）
+ANTHROPIC_AUTH_TOKEN=sk-ant-...
+ANTHROPIC_BASE_URL=              # 代理地址，不用代理留空
+
+# 服务端口
 API_PORT=3001
 FIND_CORE_PORT=8787
 MCP_PORT=9090
+
+# 本地检索配置文件路径（指向 sources.local.json）
+FIND_CONFIG_PATH=/path/to/find-unified/services/find-core/config/sources.local.json
+
+# 文档上传目录（本地开发）
+SYNC_HTTP_DIR=/tmp/find-sync/http
 ```
 
-### 初始化数据库
+### 3. 初始化数据库
 
 ```bash
 cd apps/api
@@ -98,290 +129,147 @@ npx prisma migrate dev
 npx prisma db seed
 ```
 
-Seed 会创建：
-- 2 个测试用户（admin / dev）
-- 数据源配置（local / mcp / db）
-- 内置 Skill
+Seed 会写入：2 个测试用户、3 条数据源配置、9 个内置 Skill。
 
-### 认证 Token（开发模式）
-
-本项目使用固定 mock token，无需登录：
-
-| Token | 角色 |
-|-------|------|
-| `mock-admin-token-find-unified` | admin（全功能） |
-| `mock-dev-token-find-unified` | dev（只读） |
-
-请求时在 Header 中携带：`Authorization: Bearer mock-admin-token-find-unified`
-
-Web 前端已自动使用 admin token。
-
-### 启动所有服务
+### 4. 启动所有服务
 
 ```bash
 pnpm dev
 ```
 
-Turborepo 会并行启动：
-- `apps/api` → http://localhost:3001
-- `apps/web` → http://localhost:3000
-- `services/find-core` → http://localhost:8787
-- `services/mcp-mock` → http://localhost:9090
+Turborepo 并行启动四个服务：
 
----
-
-## Docker 部署
-
-### 一键启动
-
-```bash
-docker compose up --build
-```
-
-默认访问：
-- Web 界面：http://localhost:3000
-- API：http://localhost:3001
-
-### 部署到远程服务器
-
-`NEXT_PUBLIC_API_URL` 是在构建时嵌入 Next.js 的，需要在构建前通过环境变量指定公网地址：
-
-```bash
-NEXT_PUBLIC_API_URL=http://<服务器IP或域名>:3001 docker compose up --build
-```
-
-或在宿主机 `.env` 中添加后再 `docker compose up --build`：
-
-```env
-NEXT_PUBLIC_API_URL=http://your-server.example.com:3001
-ANTHROPIC_AUTH_TOKEN=sk-ant-...
-INGEST_TOKEN=your-secure-token   # HTTP 上传接口的鉴权 token
-```
-
-### 数据持久化
-
-docker-compose 使用以下命名卷：
-
-| 卷名 | 挂载路径 | 用途 |
-|------|----------|------|
-| `db_data` | `/data/db` | SQLite 数据库文件 |
-| `docs_data` | `/data/docs` | 上传的文档文件 |
-| `config_data` | `/data/config` | sources.json 配置 |
-| `skills_data` | `/app/apps/api/skills` | Skill .md 文件 |
-
----
-
-## 数据源配置
-
-配置文件：`services/find-core/config/sources.json`（Docker 中挂载于 `/data/config/sources.json`）
-
-```json
-{
-  "local": {
-    "enabled": true,
-    "roots": ["/data/docs"],
-    "max_files": 2000,
-    "max_snippets": 5
-  },
-  "mcp": {
-    "enabled": true,
-    "endpoint": "http://mcp-mock:9090",
-    "timeout_ms": 5000
-  },
-  "db": {
-    "enabled": true,
-    "url": "file:/data/db/find_unified.db"
-  },
-  "fusion": {
-    "weights": { "local": 1.0, "mcp": 1.0, "db": 1.0 },
-    "top_k_default": 5
-  }
-}
-```
-
-- **local**：递归扫描 `roots` 目录下的所有 `.md` 文件，自动跳过 `node_modules` 和 `.git`
-- **mcp**：连接实现了 `find_search(query, top_k)` 工具的 MCP 服务；若无该工具则降级为资源列表匹配
-- **db**：查询 SQLite `knowledge_articles` 表，支持关键词全文检索
-
-本地开发使用 `sources.local.json`（由 `FIND_CONFIG_PATH` 指向），此文件不纳入 git 追踪。
-
----
-
-## Skill 系统
-
-Skill 是可插拔的 AI 行为指令，以 Markdown 文件形式存放在 `apps/api/skills/`，格式：
-
-```markdown
----
-name: query-expand
-stage: pre_search
-enabled: true
----
-在执行检索之前，请对用户的查询进行扩展优化...
-```
-
-### 阶段说明
-
-| 阶段 | 时机 |
+| 服务 | 地址 |
 |------|------|
-| `pre_search` | 检索前，可扩展/改写 query |
-| `post_search` | 检索后、生成回答前，可对证据重排序 |
-| `post_answer` | 回答生成后，可格式化输出 |
+| Web 聊天界面 + 管理后台 | http://localhost:3000 |
+| API | http://localhost:3001 |
+| find-core 检索引擎 | http://localhost:8787 |
+| MCP Mock | http://localhost:9090 |
 
-通过管理后台 `/admin/skills` 可在线启用/禁用 Skill，无需重启服务。
+> **注意**：如果修改了 `.env`，需要重启 `pnpm dev` 才能生效。旧进程不会自动读取新配置。
 
 ---
 
-## API 接口
+## 认证（开发模式）
 
-### 检索（流式）
+项目使用固定 mock token，无需登录：
 
-```http
-POST /find/search/stream
-Authorization: Bearer <token>
-Content-Type: application/json
+| Token | 角色 | 权限 |
+|-------|------|------|
+| `mock-admin-token-find-unified` | admin | 全部功能 |
+| `mock-dev-token-find-unified` | dev | 只读检索 |
 
-{
-  "query": "CVTE 产业园区分布",
-  "top_k": 5,
-  "sources": ["local", "mcp", "db"],
-  "user_context": {
-    "platform": "find_core",
-    "conversation_id": "conv-xxx"
-  }
-}
-```
+API 请求携带：`Authorization: Bearer mock-admin-token-find-unified`
 
-响应为 SSE 流，事件类型：`chunk`（文本片段）、`done`（含 evidence 和 source_status）、`error`
+Web 前端已自动使用 admin token，无需手动配置。
 
-`platform` 可选值：
-- `find_core`（默认）：通过 Anthropic API 生成回答
-- `claude_code`：spawn `claude -p <prompt>` 进程
-- `opencode` / `cursor`：spawn `opencode run <prompt>` 进程
+---
 
-### 文档上传
+## 使用指南
+
+### 聊天界面（localhost:3000）
+
+- 左侧边栏：会话历史，支持搜索和删除
+- 右上角：跳转管理后台
+- 直接输入问题即可检索，支持多轮对话
+- 回答下方展示引用来源（文件路径 / MCP / 数据库记录）
+
+### 上传文档
+
+通过管理后台 `localhost:3000/admin/sync` 上传 `.md` 文件，文件保存后立即可被检索。
+
+也可通过 API 直接推送：
 
 ```http
 POST /api/ingest/http/push
-Authorization: Bearer <ingest-token>
+Authorization: Bearer mock-admin-token-find-unified
 Content-Type: application/json
 
 {
   "filename": "my-doc.md",
-  "content": "# 文档内容\n..."
+  "content": "# 文档标题\n正文内容..."
 }
 ```
 
-### 管理接口（需 admin 角色）
+### 数据源配置（localhost:3000/admin/sources）
 
-| 方法 | 路径 | 说明 |
-|------|------|------|
-| GET/PUT | `/api/admin/sources/mcp` | MCP 数据源配置 |
-| GET/PUT | `/api/admin/sources/sqlite` | SQLite 数据源配置 |
-| GET | `/api/admin/sync/jobs` | 上传任务列表 |
-| GET/PUT/POST | `/api/admin/skills` | Skill 管理 |
-| GET | `/api/admin/system/audit` | 审计日志 |
+- **local**：自动扫描 `SYNC_HTTP_DIR` 目录下所有 `.md` 文件
+- **MCP**：填写实现了 `find_search(query, top_k)` 工具的 MCP 服务地址
+- **SQLite**：填写包含 `knowledge_articles` 表的数据库路径（`file:/path/to/db`）
+
+配置保存后同步写入 `sources.json`，find-core 下次检索时生效。
 
 ---
 
-## AI 工具适配器
+## 检索原理
 
-`adapters/` 目录提供各 AI 工具的接入配置，手动复制到对应工具的配置目录后即可使用：
+### 关键词提取
 
-- `adapters/claude-code/commands/find.md` → Claude Code 自定义命令
-- `adapters/cursor/prompts/find.prompt.md` + `mcp.json` → Cursor 提示词和 MCP 配置
-- `adapters/opencode/commands/find.md` + `tool-config.json` → Opencode 配置
+对用户 query 提取两类词：
+- ASCII token（如 `cvte`、`api`）：≥2 字符的英数字段
+- 中文词段：按助词、连词分割，保留 ≥2 字的实词
+
+### 模糊纠错
+
+每个 ASCII token 会与文档词典比对：
+- 若 token 在词典中不存在，计算编辑距离
+- ≤5 字符：允许 1 步错误；更长：允许 2 步
+- 将纠正词追加到 keywords 列表（不替换原词，避免误判）
+
+例：输入 `cvtt` → 词典有 `cvte` → 编辑距离 1 → 自动补充 `cvte` 参与检索
+
+### BM25 评分融合
+
+三源各自评分（每命中一个关键词 +2 分，标题行 +2 分），乘以各源权重系数后合并，按分数降序取 top-k 条 Evidence 送入 LLM。
 
 ---
 
-## 数据模型
+## 数据源详解
 
-```
-User ──< Conversation ──< Message ──< MessageEvidence
-SourceConfig（local / mcp / db）
-Skill
-SyncJob
-AuditLog
-KnowledgeArticle（knowledge_articles 表，供 DB 源检索）
-```
+### local 源
 
----
+递归扫描 `sources.json` 中 `local.roots` 列出的目录，索引所有 `.md` 文件。自动跳过 `node_modules`、`.git` 等目录。
 
-## 开发
-
-```bash
-# 运行测试
-pnpm test
-
-# 代码检查
-pnpm lint
-
-# 构建所有包
-pnpm build
-
-# 单独启动 find-core
-cd services/find-core && pnpm dev
-
-# 单独启动 mcp-mock
-cd services/mcp-mock && pnpm dev
+配置示例：
+```json
+{
+  "local": {
+    "enabled": true,
+    "roots": ["/data/docs", "/tmp/find-sync/http"],
+    "max_files": 2000,
+    "max_snippets": 5
+  }
+}
 ```
 
----
+### MCP 源
 
-## MCP Mock 服务
+连接任意实现了 `find_search` 工具的 MCP 服务：
 
-`services/mcp-mock` 是一个内置了若干 CVTE/产品知识条目的本地 MCP 服务，用于开发和测试，无需真实外部知识库即可验证 MCP 链路。默认端口 `9090`，暴露 `find_search` 工具。
+```
+find_search(query: string, top_k?: number)
+→ [{ title, snippet, score }]
+```
 
-### 协议
+若 MCP 服务没有 `find_search` 工具，自动降级为资源列表关键词匹配。
 
-使用 MCP SDK 的 `StreamableHTTPServerTransport`，每个请求独立创建 McpServer 实例。健康检查：`GET /health`。
+项目内置 `mcp-mock`（:9090）用于开发测试，包含 9 条 CVTE/产品相关知识条目：
 
-### 内置知识条目
-
-| 标题 | 主要标签 |
-|------|----------|
-| CVTE 产业园区布局 | cvte、视源股份、广州/武汉/成都园区 |
-| find-unified 架构概览 | 架构、overview |
-| 如何配置 MCP 数据源 | mcp、configuration、admin |
-| SQLite 数据源接入说明 | sqlite、database、configuration |
-| 文档同步：Git 仓库 | sync、git、ingest |
-| 本地文件检索配置 | local、files、markdown |
-| Skill 系统说明 | skills、rerank、pipeline |
-| API 认证机制 | auth、jwt、security |
-| 检索结果融合算法 | fusion、bm25、ranking |
-
-### 评分算法
-
-对 `title + content + tags` 拼接文本做 ASCII 关键词（≥2字符）和中文词（≥2字）的频次统计，每命中一次得 2 分；标题精确匹配额外加 5 分。取 `top_k`（默认 5）条结果返回。
-
----
-
-## 数据库结构
-
-项目使用两个 SQLite 数据库：
-
-| 数据库 | 环境变量 | 用途 |
-|--------|----------|------|
-| `apps/api` 主库 | `DATABASE_URL` | Prisma 管理的业务数据 |
-| 检索知识库 | `db.url`（sources.json） | find-core 直查的知识文章 |
-
-### Prisma 管理的表（apps/api）
-
-| 表名 | 说明 |
+| 条目 | 标签 |
 |------|------|
-| `users` | 用户（id、name、role、defaultCli） |
-| `conversations` | 会话（ownerUserId、title、deletedAt） |
-| `messages` | 消息（conversationId、role、content、traceId） |
-| `message_evidence` | 消息引用的证据（sourceType、title、snippet、score、sourceRef） |
-| `source_configs` | 数据源配置（sourceType 唯一键、enabled、configJson、updatedBy） |
-| `skills` | Skill 配置（name 唯一键、stage、enabled、priority、configJson） |
-| `sync_jobs` | 文档同步任务记录（jobType、status、payloadJson、resultJson） |
-| `audit_logs` | 审计日志（operatorUserId、action、targetType、targetId、detailJson） |
-| `knowledge_articles` | 可被 DB 源检索的知识文章（见下） |
+| CVTE 产业园区布局 | cvte、广州/武汉/成都园区 |
+| find-unified 架构概览 | 架构、overview |
+| 如何配置 MCP 数据源 | mcp、configuration |
+| SQLite 数据源接入说明 | sqlite、database |
+| 文档同步 Git 仓库 | sync、git |
+| 本地文件检索配置 | local、markdown |
+| Skill 系统说明 | skills、pipeline |
+| API 认证机制 | auth、security |
+| 检索结果融合算法 | fusion、bm25 |
 
-### knowledge_articles 表
+### DB 源
 
-find-core 的 `db` 数据源直接查询此表，支持 title + content + tags + category 关键词全文检索。
+直接查询 SQLite `knowledge_articles` 表：
 
 ```sql
 CREATE TABLE knowledge_articles (
@@ -396,32 +284,49 @@ CREATE TABLE knowledge_articles (
 );
 ```
 
-向此表插入数据即可让 DB 数据源检索到对应内容，无需重启服务。可通过 Prisma Studio（`npx prisma studio`）或直接执行 SQL 操作。
+向此表插入记录即可被检索，无需重启服务。可用 `npx prisma studio` 可视化操作。
 
-### knowledge_articles 当前内容
+当前预置的 9 条知识记录：
 
-| 标题 | 分类 | 标签 | 作者 | 内容摘要 |
-|------|------|------|------|---------|
-| find-unified 项目简介 | 项目文档 | overview, architecture, introduction | 研发团队 | 统一知识检索平台介绍，整合 Markdown / MCP / DB 三源 |
-| 检索接口使用指南 | API文档 | api, search, usage | 后端团队 | POST /find/search 参数说明（query、top_k、sources）及返回结构 |
-| 数据同步最佳实践 | 运维指南 | sync, git, best-practices | 运维团队 | Git 仓库同步建议：公开仓库免认证，私有仓库用 Token，间隔 ≥ 30 分钟 |
-| BullMQ 任务队列说明 | 技术文档 | bullmq, redis, queue | 基础架构团队 | 同步任务异步处理，依赖 Redis，状态流转 pending → running → done/failed |
-| 知识库维护规范 | 文档规范 | markdown, knowledge-base, guidelines | 内容团队 | Markdown 文件以 # 标题开头，每段 ≤ 500 字，关键术语加粗提升命中率 |
-| 环境变量配置清单 | 运维指南 | environment, configuration, deployment | 运维团队 | 必填：DATABASE_URL、REDIS_URL、JWT_SECRET；可选：LOG_LEVEL、FIND_CONFIG_PATH |
-| MCP 服务接入规范 | API文档 | mcp, integration, protocol | 后端团队 | find_search 工具参数规范，返回 `{ title, snippet, score }` JSON，支持 StreamableHTTP / SSE |
-| 权限与角色体系 | 安全文档 | auth, roles, permissions, security | 安全团队 | admin（全功能）和 dev（只读检索），role 存于 users 表，JWT 携带 userId + role |
-| CVTE 成立三年发展历程 | 企业简介 | cvte, 视源股份, 发展历程 | 企业文化团队 | 第一年液晶主控板全球领先；第二年推出希沃教育平板；第三年营收复合增长率 >30%，员工突破万人 |
+| 标题 | 分类 | 内容摘要 |
+|------|------|---------|
+| find-unified 项目简介 | 项目文档 | 整合 Markdown / MCP / DB 三源的统一检索平台 |
+| 检索接口使用指南 | API文档 | POST /find/search 参数与返回结构说明 |
+| 数据同步最佳实践 | 运维指南 | Git 同步建议，间隔 ≥ 30 分钟 |
+| BullMQ 任务队列说明 | 技术文档 | 异步任务状态流转（已作为历史参考，当前不依赖 Redis） |
+| 知识库维护规范 | 文档规范 | Markdown 文件格式建议 |
+| 环境变量配置清单 | 运维指南 | 必填与可选环境变量列表 |
+| MCP 服务接入规范 | API文档 | find_search 工具参数与返回格式 |
+| 权限与角色体系 | 安全文档 | admin / dev 角色说明 |
+| CVTE 成立三年发展历程 | 企业简介 | 三年发展里程碑，营收复合增长率 >30% |
 
-### Seed 初始数据
+---
 
-执行 `npx prisma db seed` 会写入：
+## Skill 系统
 
-- **2 个用户**：`Admin User`（admin 角色）、`Dev User`（dev 角色）
-- **3 条 source_configs**：local（启用）、mcp（默认禁用）、db（默认禁用）
-- **9 个 Skill**：
+Skill 是插入检索管道的 prompt 指令片段，以 Markdown 文件存放在 `apps/api/skills/`：
 
-| Skill 名称 | 阶段 | 默认启用 |
-|------------|------|---------|
+```markdown
+---
+name: query-expand
+stage: pre_search
+enabled: true
+---
+在执行检索之前，请对用户的查询进行同义词扩展...
+```
+
+三个执行阶段：
+
+| 阶段 | 时机 | 典型用途 |
+|------|------|---------|
+| `pre_search` | 检索前 | 扩展 query、语言检测、过滤无效词 |
+| `post_search` | 检索后、生成回答前 | 重排序、来源加权、去重 |
+| `post_answer` | 回答生成后 | 格式化引用、推荐相关问题 |
+
+内置 Skill（`npx prisma db seed` 写入）：
+
+| Skill | 阶段 | 默认启用 |
+|-------|------|---------|
 | query_expand | pre_search | ✓ |
 | lang_detect | pre_search | ✓ |
 | query_filter | pre_search | ✗ |
@@ -431,3 +336,147 @@ CREATE TABLE knowledge_articles (
 | suggest | post_answer | ✓ |
 | citation | post_answer | ✓ |
 | feedback_collector | post_answer | ✗ |
+
+通过 `localhost:3000/admin/skills` 可在线启用/禁用，无需重启。
+
+---
+
+## 数据库结构
+
+项目使用 SQLite，由 Prisma 管理以下表：
+
+| 表名 | 说明 |
+|------|------|
+| `users` | 用户（id、name、role、defaultCli） |
+| `conversations` | 会话（ownerUserId、title、deletedAt） |
+| `messages` | 消息（conversationId、role、content） |
+| `message_evidence` | 消息引用的证据片段 |
+| `source_configs` | 数据源配置（mcp / db 的 endpoint 和开关） |
+| `skills` | Skill 元数据和 JSON 配置 |
+| `sync_jobs` | 文档上传任务记录 |
+| `audit_logs` | 管理操作审计日志 |
+| `knowledge_articles` | DB 数据源的知识文章 |
+
+---
+
+## API 参考
+
+### 流式检索
+
+```http
+POST /find/search/stream
+Authorization: Bearer <token>
+Content-Type: application/json
+
+{
+  "query": "CVTE 是什么公司",
+  "top_k": 5,
+  "sources": ["local", "mcp", "db"],
+  "user_context": {
+    "platform": "find_core",
+    "conversation_id": "conv-xxx"
+  }
+}
+```
+
+SSE 事件类型：
+
+| 事件 | 内容 |
+|------|------|
+| `chunk` | `{ text: "..." }` 文本片段 |
+| `done` | `{ evidence: [...], source_status: [...], skill_names: [...] }` |
+| `error` | `{ message: "..." }` |
+
+`platform` 可选值：
+
+| 值 | 回答方式 |
+|----|---------|
+| `find_core`（默认） | 调用 Anthropic API |
+| `claude_code` | spawn `claude -p <prompt>` |
+| `cursor` / `opencode` | spawn `opencode run <prompt>` |
+
+### 管理接口
+
+| 方法 | 路径 | 说明 |
+|------|------|------|
+| GET/PUT | `/api/admin/sources/mcp` | MCP 数据源配置 |
+| GET/PUT | `/api/admin/sources/sqlite` | SQLite 数据源配置 |
+| POST | `/api/ingest/http/push` | 上传文档 |
+| GET | `/api/ingest/http/files` | 已上传文件列表 |
+| DELETE | `/api/ingest/http/files/*` | 删除文件 |
+| GET/PUT/POST | `/api/admin/skills` | Skill 管理 |
+| GET | `/api/admin/system/audit` | 审计日志 |
+
+---
+
+## Docker 部署
+
+### 一键启动
+
+```bash
+docker compose up --build
+```
+
+访问：
+- Web 界面：http://localhost:3000
+- API：http://localhost:3001
+
+### 部署到远程服务器
+
+`NEXT_PUBLIC_API_URL` 在构建时嵌入 Next.js，需提前指定：
+
+```bash
+NEXT_PUBLIC_API_URL=http://<服务器IP>:3001 docker compose up --build
+```
+
+或在 `.env` 中设置后再构建：
+
+```env
+NEXT_PUBLIC_API_URL=http://your-server.example.com:3001
+ANTHROPIC_AUTH_TOKEN=sk-ant-...
+INGEST_TOKEN=your-secure-token
+```
+
+### 数据持久化
+
+| 卷名 | 挂载路径 | 用途 |
+|------|----------|------|
+| `db_data` | `/data/db` | SQLite 数据库 |
+| `docs_data` | `/data/docs` | 上传的文档 |
+| `config_data` | `/data/config` | sources.json 配置 |
+| `skills_data` | `/app/apps/api/skills` | Skill .md 文件 |
+
+---
+
+## AI 工具适配器
+
+`adapters/` 目录提供各工具的接入配置，复制到对应工具的配置目录后即可使用：
+
+- `adapters/claude-code/commands/find.md` → Claude Code 自定义命令
+- `adapters/cursor/prompts/find.prompt.md` + `mcp.json` → Cursor
+- `adapters/opencode/commands/find.md` + `tool-config.json` → Opencode
+
+---
+
+## 常用开发命令
+
+```bash
+# 启动所有服务
+pnpm dev
+
+# 运行测试
+pnpm test
+
+# 代码检查
+pnpm lint
+
+# 构建所有包
+pnpm build
+
+# 单独启动某个服务
+cd services/find-core && pnpm dev
+cd services/mcp-mock && pnpm dev
+
+# 数据库可视化
+cd apps/api && npx prisma studio
+```
