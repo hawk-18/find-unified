@@ -2,7 +2,8 @@
   "local": {
     "enabled": true,
     "roots": [
-      "/data/docs"
+      "/data/docs",
+      "/tmp/find-sync/http"
     ],
     "max_files": 2000,
     "max_snippets": 5

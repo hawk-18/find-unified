@@ -9,6 +9,7 @@ export interface Skill {
   enabled: boolean
   content: string
   body: string
+  script?: string
 }
 
 export interface CreateSkillBody {
@@ -24,6 +25,7 @@ export interface UpdateSkillBody {
   stage?: 'pre_search' | 'post_search' | 'post_answer'
   enabled?: boolean
   body?: string
+  script?: string
 }
 
 export function useSkills() {

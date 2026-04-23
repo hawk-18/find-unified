@@ -24,12 +24,12 @@ find-unified/
 AI 工具 / Web 前端
       │
       ▼
-  apps/api  ──────────────────────────────────────────┐
-  （认证 / 对话历史 / Skill 指令 / LLM 流式回答）     │
-      │                                               │
-      ▼                                               ▼
- services/find-core                            Anthropic API
- （三源并行检索 + 结果融合）                    （claude-sonnet）
+  apps/api  
+  （认证 / 对话历史 / Skill 指令 / LLM 流式回答）     
+      │                                               
+      ▼                                               
+ services/find-core                            
+ （三源并行检索 + 结果融合）                    
   ├── local：扫描本地 Markdown 文件
   ├── mcp：  通过 MCP 协议查询外部知识库
   └── db：   查询 SQLite 数据库
@@ -39,10 +39,10 @@ AI 工具 / Web 前端
 
 ## 功能特性
 
-- **三源聚合检索**：同时查询本地文件、MCP 服务、SQLite，BM25 关键词打分后加权融合
+- **三源聚合检索**：同时查询本地文件、MCP 服务、SQLite
 - **LLM 流式回答**：证据送入 Claude，通过 SSE 实时流式输出答案
-- **多平台支持**：`find_core`（直连 LLM）、`claude_code`、`opencode`、`cursor`（spawn CLI 进程）
-- **Skill 系统**：可插拔的检索增强管道，分 pre_search / post_search / post_answer 三阶段
+- **多平台支持**：`claude_code`、`opencode`、`cursor`（spawn CLI 进程）
+- **Skill 系统**：可插拔的检索增强管道，分 pre_search / post_search 阶段
 - **对话历史**：基于 SQLite 的多轮会话记忆，支持上下文联系
 - **管理后台**：Web UI 配置数据源、管理 Skill、上传文档、查看审计日志
 - **HTTP 文档上传**：通过 `/admin/sync` 页面直接上传 Markdown 文件到检索目录
@@ -331,3 +331,103 @@ cd services/mcp-mock && pnpm dev
 ## MCP Mock 服务
 
 `services/mcp-mock` 是一个内置了若干 CVTE/产品知识条目的本地 MCP 服务，用于开发和测试，无需真实外部知识库即可验证 MCP 链路。默认端口 `9090`，暴露 `find_search` 工具。
+
+### 协议
+
+使用 MCP SDK 的 `StreamableHTTPServerTransport`，每个请求独立创建 McpServer 实例。健康检查：`GET /health`。
+
+### 内置知识条目
+
+| 标题 | 主要标签 |
+|------|----------|
+| CVTE 产业园区布局 | cvte、视源股份、广州/武汉/成都园区 |
+| find-unified 架构概览 | 架构、overview |
+| 如何配置 MCP 数据源 | mcp、configuration、admin |
+| SQLite 数据源接入说明 | sqlite、database、configuration |
+| 文档同步：Git 仓库 | sync、git、ingest |
+| 本地文件检索配置 | local、files、markdown |
+| Skill 系统说明 | skills、rerank、pipeline |
+| API 认证机制 | auth、jwt、security |
+| 检索结果融合算法 | fusion、bm25、ranking |
+
+### 评分算法
+
+对 `title + content + tags` 拼接文本做 ASCII 关键词（≥2字符）和中文词（≥2字）的频次统计，每命中一次得 2 分；标题精确匹配额外加 5 分。取 `top_k`（默认 5）条结果返回。
+
+---
+
+## 数据库结构
+
+项目使用两个 SQLite 数据库：
+
+| 数据库 | 环境变量 | 用途 |
+|--------|----------|------|
+| `apps/api` 主库 | `DATABASE_URL` | Prisma 管理的业务数据 |
+| 检索知识库 | `db.url`（sources.json） | find-core 直查的知识文章 |
+
+### Prisma 管理的表（apps/api）
+
+| 表名 | 说明 |
+|------|------|
+| `users` | 用户（id、name、role、defaultCli） |
+| `conversations` | 会话（ownerUserId、title、deletedAt） |
+| `messages` | 消息（conversationId、role、content、traceId） |
+| `message_evidence` | 消息引用的证据（sourceType、title、snippet、score、sourceRef） |
+| `source_configs` | 数据源配置（sourceType 唯一键、enabled、configJson、updatedBy） |
+| `skills` | Skill 配置（name 唯一键、stage、enabled、priority、configJson） |
+| `sync_jobs` | 文档同步任务记录（jobType、status、payloadJson、resultJson） |
+| `audit_logs` | 审计日志（operatorUserId、action、targetType、targetId、detailJson） |
+| `knowledge_articles` | 可被 DB 源检索的知识文章（见下） |
+
+### knowledge_articles 表
+
+find-core 的 `db` 数据源直接查询此表，支持 title + content + tags + category 关键词全文检索。
+
+```sql
+CREATE TABLE knowledge_articles (
+  id        TEXT PRIMARY KEY,
+  title     TEXT NOT NULL,
+  content   TEXT NOT NULL,
+  category  TEXT NOT NULL,
+  tags      TEXT NOT NULL,   -- 逗号分隔
+  author    TEXT NOT NULL,
+  createdAt DATETIME DEFAULT CURRENT_TIMESTAMP,
+  updatedAt DATETIME
+);
+```
+
+向此表插入数据即可让 DB 数据源检索到对应内容，无需重启服务。可通过 Prisma Studio（`npx prisma studio`）或直接执行 SQL 操作。
+
+### knowledge_articles 当前内容
+
+| 标题 | 分类 | 标签 | 作者 | 内容摘要 |
+|------|------|------|------|---------|
+| find-unified 项目简介 | 项目文档 | overview, architecture, introduction | 研发团队 | 统一知识检索平台介绍，整合 Markdown / MCP / DB 三源 |
+| 检索接口使用指南 | API文档 | api, search, usage | 后端团队 | POST /find/search 参数说明（query、top_k、sources）及返回结构 |
+| 数据同步最佳实践 | 运维指南 | sync, git, best-practices | 运维团队 | Git 仓库同步建议：公开仓库免认证，私有仓库用 Token，间隔 ≥ 30 分钟 |
+| BullMQ 任务队列说明 | 技术文档 | bullmq, redis, queue | 基础架构团队 | 同步任务异步处理，依赖 Redis，状态流转 pending → running → done/failed |
+| 知识库维护规范 | 文档规范 | markdown, knowledge-base, guidelines | 内容团队 | Markdown 文件以 # 标题开头，每段 ≤ 500 字，关键术语加粗提升命中率 |
+| 环境变量配置清单 | 运维指南 | environment, configuration, deployment | 运维团队 | 必填：DATABASE_URL、REDIS_URL、JWT_SECRET；可选：LOG_LEVEL、FIND_CONFIG_PATH |
+| MCP 服务接入规范 | API文档 | mcp, integration, protocol | 后端团队 | find_search 工具参数规范，返回 `{ title, snippet, score }` JSON，支持 StreamableHTTP / SSE |
+| 权限与角色体系 | 安全文档 | auth, roles, permissions, security | 安全团队 | admin（全功能）和 dev（只读检索），role 存于 users 表，JWT 携带 userId + role |
+| CVTE 成立三年发展历程 | 企业简介 | cvte, 视源股份, 发展历程 | 企业文化团队 | 第一年液晶主控板全球领先；第二年推出希沃教育平板；第三年营收复合增长率 >30%，员工突破万人 |
+
+### Seed 初始数据
+
+执行 `npx prisma db seed` 会写入：
+
+- **2 个用户**：`Admin User`（admin 角色）、`Dev User`（dev 角色）
+- **3 条 source_configs**：local（启用）、mcp（默认禁用）、db（默认禁用）
+- **9 个 Skill**：
+
+| Skill 名称 | 阶段 | 默认启用 |
+|------------|------|---------|
+| query_expand | pre_search | ✓ |
+| lang_detect | pre_search | ✓ |
+| query_filter | pre_search | ✗ |
+| rerank | post_search | ✓ |
+| source_boost | post_search | ✓ |
+| dedup | post_search | ✗ |
+| suggest | post_answer | ✓ |
+| citation | post_answer | ✓ |
+| feedback_collector | post_answer | ✗ |

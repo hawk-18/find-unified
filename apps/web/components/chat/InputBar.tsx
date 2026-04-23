@@ -176,63 +176,81 @@ export function InputBar() {
     <div
       style={{
         borderTop: '1px solid var(--color-border)',
-        background: 'var(--color-bg)',
-        padding: '12px 16px',
-        display: 'flex',
-        gap: 8,
-        alignItems: 'flex-end',
+        background: '#fff',
+        padding: '12px 20px 16px',
       }}
     >
-      <textarea
-        ref={textareaRef}
-        value={text}
-        onChange={(e) => { setText(e.target.value); autoResize() }}
-        onKeyDown={handleKeyDown}
-        placeholder="输入问题，Enter 发送，Shift+Enter 换行"
-        rows={1}
+      <div
         style={{
-          flex: 1,
-          resize: 'none',
-          border: '1px solid var(--color-border)',
-          borderRadius: 'var(--radius-sm)',
-          padding: '10px 12px',
-          fontSize: 'var(--text-body)',
-          fontFamily: 'var(--font-sans)',
-          color: 'var(--color-text-primary)',
-          outline: 'none',
-          lineHeight: 1.5,
-          overflowY: 'auto',
-          maxHeight: 200,
-        }}
-      />
-      <button
-        onClick={handleSubmit}
-        disabled={isLoading || !text.trim()}
-        style={{
-          background: isLoading || !text.trim() ? '#f2a0b0' : 'var(--color-brand)',
-          color: '#fff',
-          border: 'none',
-          borderRadius: 'var(--radius-sm)',
-          padding: '10px 20px',
-          fontSize: 'var(--text-body)',
-          fontWeight: 500,
-          cursor: isLoading || !text.trim() ? 'not-allowed' : 'pointer',
           display: 'flex',
-          alignItems: 'center',
-          gap: 6,
-          whiteSpace: 'nowrap',
-          transition: 'background 0.15s',
+          gap: 8,
+          alignItems: 'flex-end',
+          background: 'var(--color-bg)',
+          border: '1.5px solid',
+          borderColor: isStreaming ? 'var(--color-brand)' : 'var(--color-border)',
+          borderRadius: 12,
+          padding: '8px 8px 8px 14px',
+          transition: 'border-color 0.2s',
         }}
       >
-        {isLoading ? (
-          <>
-            <Spinner />
-            检索中
-          </>
-        ) : (
-          '发送'
-        )}
-      </button>
+        <textarea
+          ref={textareaRef}
+          value={text}
+          onChange={(e) => { setText(e.target.value); autoResize() }}
+          onKeyDown={handleKeyDown}
+          placeholder="输入问题，Enter 发送，Shift+Enter 换行"
+          rows={1}
+          style={{
+            flex: 1,
+            resize: 'none',
+            border: 'none',
+            borderRadius: 0,
+            padding: '4px 0',
+            fontSize: 'var(--text-body)',
+            fontFamily: 'var(--font-sans)',
+            color: 'var(--color-text-primary)',
+            outline: 'none',
+            lineHeight: 1.5,
+            overflowY: 'auto',
+            maxHeight: 200,
+            background: 'transparent',
+          }}
+        />
+        <button
+          onClick={handleSubmit}
+          disabled={isLoading || !text.trim()}
+          style={{
+            background: isLoading || !text.trim() ? 'var(--color-surface-secondary)' : 'var(--color-brand)',
+            color: isLoading || !text.trim() ? 'var(--color-text-secondary)' : '#fff',
+            border: 'none',
+            borderRadius: 8,
+            padding: '8px 16px',
+            fontSize: 'var(--text-body)',
+            fontWeight: 500,
+            cursor: isLoading || !text.trim() ? 'not-allowed' : 'pointer',
+            display: 'flex',
+            alignItems: 'center',
+            gap: 6,
+            whiteSpace: 'nowrap',
+            transition: 'background 0.15s, color 0.15s',
+            flexShrink: 0,
+          }}
+        >
+          {isLoading ? (
+            <>
+              <Spinner />
+              检索中
+            </>
+          ) : (
+            <>
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M22 2L11 13M22 2L15 22l-4-9-9-4 19-7z" />
+              </svg>
+              发送
+            </>
+          )}
+        </button>
+      </div>
     </div>
   )
 }

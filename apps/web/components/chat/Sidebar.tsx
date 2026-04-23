@@ -244,7 +244,7 @@ export function Sidebar() {
         style={{
           width: 260,
           flexShrink: 0,
-          background: 'var(--color-bg)',
+          background: '#fafafa',
           borderRight: '1px solid var(--color-border)',
           display: 'flex',
           flexDirection: 'column',
@@ -252,16 +252,41 @@ export function Sidebar() {
         }}
       >
         {/* header */}
-        <div style={{ padding: '16px 12px 8px', borderBottom: '1px solid var(--color-border)' }}>
+        <div style={{ padding: '16px 12px 10px', borderBottom: '1px solid var(--color-border)' }}>
           <div
             style={{
-              fontSize: 'var(--text-lg)',
-              fontWeight: 600,
-              color: 'var(--color-text-primary)',
+              display: 'flex',
+              alignItems: 'center',
+              gap: 8,
               marginBottom: 10,
             }}
           >
-            Find Unified
+            <span
+              style={{
+                width: 28,
+                height: 28,
+                borderRadius: 8,
+                background: 'var(--color-brand)',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                color: '#fff',
+                fontSize: 14,
+                fontWeight: 700,
+                flexShrink: 0,
+              }}
+            >
+              F
+            </span>
+            <span
+              style={{
+                fontSize: 'var(--text-lg)',
+                fontWeight: 600,
+                color: 'var(--color-text-primary)',
+              }}
+            >
+              Find Unified
+            </span>
           </div>
           <input
             value={keyword}
@@ -269,14 +294,15 @@ export function Sidebar() {
             placeholder="搜索历史"
             style={{
               width: '100%',
-              height: 36,
+              height: 34,
               border: '1px solid var(--color-border)',
-              borderRadius: 'var(--radius-sm)',
+              borderRadius: 8,
               padding: '0 10px',
               fontSize: 'var(--text-body)',
               color: 'var(--color-text-primary)',
               outline: 'none',
               boxSizing: 'border-box',
+              background: '#fff',
             }}
           />
         </div>
@@ -290,14 +316,21 @@ export function Sidebar() {
               background: 'var(--color-brand)',
               color: '#fff',
               border: 'none',
-              borderRadius: 'var(--radius-sm)',
+              borderRadius: 8,
               padding: '8px 0',
               fontSize: 'var(--text-body)',
               fontWeight: 500,
               cursor: 'pointer',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              gap: 6,
             }}
           >
-            + 新建会话
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M12 5v14M5 12h14" />
+            </svg>
+            新建会话
           </button>
         </div>
 
@@ -342,19 +375,21 @@ export function Sidebar() {
                       display: 'flex',
                       alignItems: 'center',
                       gap: 4,
-                      padding: '7px 12px',
+                      padding: '7px 10px',
                       cursor: 'pointer',
-                      borderRadius: 'var(--radius-sm)',
+                      borderRadius: 8,
                       margin: '0 6px',
                       background:
-                        conv.id === conversationId ? 'var(--color-surface-secondary)' : 'transparent',
+                        conv.id === conversationId ? '#fff' : 'transparent',
+                      boxShadow:
+                        conv.id === conversationId ? '0 1px 3px rgba(0,0,0,0.08)' : 'none',
                     }}
                   >
                     <div style={{ flex: 1, minWidth: 0 }}>
                       <div
                         style={{
                           fontSize: 'var(--text-body)',
-                          fontWeight: 500,
+                          fontWeight: conv.id === conversationId ? 600 : 400,
                           color: 'var(--color-text-primary)',
                           overflow: 'hidden',
                           textOverflow: 'ellipsis',

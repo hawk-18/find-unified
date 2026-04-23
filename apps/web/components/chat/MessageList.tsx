@@ -16,7 +16,7 @@ function UserBubble({ msg }: { msg: ChatMessage }) {
         style={{
           background: 'var(--color-brand)',
           color: '#fff',
-          borderRadius: 'var(--radius-lg)',
+          borderRadius: '18px 18px 4px 18px',
           padding: '12px 16px',
           maxWidth: '70%',
           fontSize: 'var(--text-body)',
@@ -79,17 +79,37 @@ function MetaFooter({ msg }: { msg: ChatMessage }) {
 
 function AssistantBubble({ msg }: { msg: ChatMessage }) {
   return (
-    <div style={{ display: 'flex', justifyContent: 'flex-start', marginBottom: 20 }}>
+    <div style={{ display: 'flex', justifyContent: 'flex-start', marginBottom: 20, gap: 10 }}>
       <div
         style={{
-          maxWidth: '85%',
-          background: 'var(--color-surface-secondary)',
-          borderRadius: 'var(--radius-sm)',
+          width: 28,
+          height: 28,
+          borderRadius: '50%',
+          background: 'var(--color-brand)',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          color: '#fff',
+          fontSize: 12,
+          fontWeight: 700,
+          flexShrink: 0,
+          marginTop: 4,
+        }}
+      >
+        F
+      </div>
+      <div
+        style={{
+          maxWidth: '80%',
+          background: '#fff',
+          border: '1px solid var(--color-border)',
+          borderRadius: '4px 18px 18px 18px',
           padding: '12px 16px',
           fontSize: 'var(--text-body)',
           color: 'var(--color-text-primary)',
           lineHeight: 1.7,
           wordBreak: 'break-word',
+          boxShadow: '0 1px 3px rgba(0,0,0,0.06)',
         }}
       >
         {msg.content
@@ -117,40 +137,72 @@ export function MessageList() {
           flexDirection: 'column',
           alignItems: 'center',
           justifyContent: 'center',
-          gap: 32,
+          gap: 28,
         }}
       >
-        <h2
-          style={{
-            fontSize: 'var(--text-2xl)',
-            fontWeight: 600,
-            color: 'var(--color-text-primary)',
-            margin: 0,
-            textAlign: 'center',
-          }}
-        >
-          有什么我能帮你的吗？
-        </h2>
+        <div style={{ textAlign: 'center' }}>
+          <div
+            style={{
+              width: 56,
+              height: 56,
+              borderRadius: 16,
+              background: 'var(--color-brand)',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              color: '#fff',
+              fontSize: 24,
+              fontWeight: 700,
+              margin: '0 auto 16px',
+            }}
+          >
+            F
+          </div>
+          <h2
+            style={{
+              fontSize: 'var(--text-2xl)',
+              fontWeight: 600,
+              color: 'var(--color-text-primary)',
+              margin: '0 0 8px',
+            }}
+          >
+            有什么我能帮你的吗？
+          </h2>
+          <p style={{ fontSize: 'var(--text-body)', color: 'var(--color-text-secondary)', margin: 0 }}>
+            试试下面的问题，或直接输入你的问题
+          </p>
+        </div>
 
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 10, width: '100%', maxWidth: 480 }}>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 8, width: '100%', maxWidth: 480 }}>
           {SUGGESTIONS.map((q) => (
             <button
               key={q}
               onClick={() => setPendingQuery(q)}
               style={{
                 padding: '12px 18px',
-                background: 'var(--color-surface-secondary)',
+                background: '#fff',
                 border: '1px solid var(--color-border)',
-                borderRadius: 'var(--radius-sm)',
+                borderRadius: 10,
                 fontSize: 'var(--text-body)',
                 color: 'var(--color-text-primary)',
                 cursor: 'pointer',
                 textAlign: 'left',
-                transition: 'background 0.15s',
+                display: 'flex',
+                alignItems: 'center',
+                gap: 10,
+                transition: 'border-color 0.15s, box-shadow 0.15s',
+                boxShadow: '0 1px 3px rgba(0,0,0,0.04)',
               }}
-              onMouseEnter={(e) => (e.currentTarget.style.background = 'var(--color-border)')}
-              onMouseLeave={(e) => (e.currentTarget.style.background = 'var(--color-surface-secondary)')}
+              onMouseEnter={(e) => {
+                e.currentTarget.style.borderColor = 'var(--color-brand)'
+                e.currentTarget.style.boxShadow = '0 2px 8px rgba(255,56,92,0.12)'
+              }}
+              onMouseLeave={(e) => {
+                e.currentTarget.style.borderColor = 'var(--color-border)'
+                e.currentTarget.style.boxShadow = '0 1px 3px rgba(0,0,0,0.04)'
+              }}
             >
+              <span style={{ color: 'var(--color-brand)', flexShrink: 0, fontSize: 16 }}>→</span>
               {q}
             </button>
           ))}

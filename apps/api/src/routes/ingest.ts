@@ -6,7 +6,7 @@ import { prisma } from '../lib/prisma.js'
 import { authenticate, requireRole } from '../plugins/auth.js'
 
 const INGEST_TOKEN = process.env.INGEST_TOKEN ?? 'ingest-dev-token'
-const SYNC_HTTP_DIR = process.env.SYNC_HTTP_DIR ?? '/data/docs'
+const SYNC_HTTP_DIR = process.env.SYNC_HTTP_DIR ?? '/tmp/find-sync/http'
 const FIND_CONFIG_PATH =
   process.env.FIND_CONFIG_PATH ??
   '/data/config/sources.json'

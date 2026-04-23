@@ -21,6 +21,7 @@ export default function ChatPage() {
             justifyContent: 'space-between',
             padding: '0 20px',
             flexShrink: 0,
+            background: '#fff',
           }}
         >
           <SourceStatusBar />
@@ -31,7 +32,7 @@ export default function ChatPage() {
               alignItems: 'center',
               gap: 6,
               padding: '5px 14px',
-              borderRadius: 'var(--radius-sm)',
+              borderRadius: 8,
               border: '1px solid var(--color-border)',
               background: 'var(--color-surface-secondary)',
               color: 'var(--color-text-secondary)',

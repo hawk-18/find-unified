@@ -64,7 +64,7 @@ export function AdminNav() {
       style={{
         width: '220px',
         flexShrink: 0,
-        background: 'var(--color-bg)',
+        background: '#fafafa',
         borderRight: '1px solid var(--color-border)',
         display: 'flex',
         flexDirection: 'column',
@@ -73,39 +73,109 @@ export function AdminNav() {
         top: 0,
       }}
     >
-      {/* User info */}
+      {/* Brand header */}
       <div
         style={{
-          padding: '24px 16px 16px',
+          padding: '20px 16px 16px',
           borderBottom: '1px solid var(--color-border)',
         }}
       >
         <div
           style={{
-            fontSize: 'var(--text-body)',
-            fontWeight: 500,
-            color: 'var(--color-text-primary)',
-            marginBottom: '6px',
+            display: 'flex',
+            alignItems: 'center',
+            gap: 8,
+            marginBottom: 14,
           }}
         >
-          {userName}
+          <span
+            style={{
+              width: 28,
+              height: 28,
+              borderRadius: 8,
+              background: 'var(--color-brand)',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              color: '#fff',
+              fontSize: 14,
+              fontWeight: 700,
+              flexShrink: 0,
+            }}
+          >
+            F
+          </span>
+          <span
+            style={{
+              fontSize: 'var(--text-body)',
+              fontWeight: 600,
+              color: 'var(--color-text-primary)',
+            }}
+          >
+            管理后台
+          </span>
         </div>
-        <span
+
+        {/* User info */}
+        <div
           style={{
-            fontSize: 'var(--text-xs)',
-            fontWeight: 600,
-            padding: '2px 8px',
-            borderRadius: 'var(--radius-md)',
-            background: role === 'admin' ? 'var(--color-brand)' : 'var(--color-surface-secondary)',
-            color: role === 'admin' ? '#fff' : 'var(--color-text-secondary)',
+            display: 'flex',
+            alignItems: 'center',
+            gap: 8,
+            padding: '8px 10px',
+            borderRadius: 8,
+            background: '#fff',
+            border: '1px solid var(--color-border)',
           }}
         >
-          {role === 'admin' ? 'admin' : 'dev'}
-        </span>
+          <div
+            style={{
+              width: 28,
+              height: 28,
+              borderRadius: '50%',
+              background: 'var(--color-surface-secondary)',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              fontSize: 12,
+              fontWeight: 600,
+              color: 'var(--color-text-secondary)',
+              flexShrink: 0,
+            }}
+          >
+            {userName.charAt(0)}
+          </div>
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <div
+              style={{
+                fontSize: 12,
+                fontWeight: 500,
+                color: 'var(--color-text-primary)',
+                overflow: 'hidden',
+                textOverflow: 'ellipsis',
+                whiteSpace: 'nowrap',
+              }}
+            >
+              {userName}
+            </div>
+            <span
+              style={{
+                fontSize: 10,
+                fontWeight: 600,
+                padding: '1px 6px',
+                borderRadius: 4,
+                background: role === 'admin' ? 'var(--color-brand)' : 'var(--color-surface-secondary)',
+                color: role === 'admin' ? '#fff' : 'var(--color-text-secondary)',
+              }}
+            >
+              {role === 'admin' ? 'admin' : 'dev'}
+            </span>
+          </div>
+        </div>
       </div>
 
       {/* Nav items */}
-      <ul style={{ listStyle: 'none', margin: 0, padding: '8px 0', flex: 1 }}>
+      <ul style={{ listStyle: 'none', margin: 0, padding: '8px 8px', flex: 1 }}>
         {visibleItems.map((item) => {
           const isActive = item.href === '/admin' ? pathname === '/admin' : pathname.startsWith(item.href)
           return (
@@ -115,14 +185,15 @@ export function AdminNav() {
                 style={{
                   display: 'flex',
                   alignItems: 'center',
-                  padding: '10px 16px',
+                  padding: '9px 12px',
                   fontSize: 'var(--text-body)',
                   fontWeight: isActive ? 600 : 400,
-                  color: isActive ? 'var(--color-text-primary)' : 'var(--color-text-secondary)',
+                  color: isActive ? 'var(--color-brand)' : 'var(--color-text-secondary)',
                   textDecoration: 'none',
-                  borderLeft: isActive ? '3px solid var(--color-brand)' : '3px solid transparent',
-                  background: isActive ? 'var(--color-surface-secondary)' : 'transparent',
-                  transition: 'background 0.15s',
+                  borderRadius: 8,
+                  background: isActive ? '#fff2f4' : 'transparent',
+                  transition: 'background 0.15s, color 0.15s',
+                  marginBottom: 2,
                 }}
               >
                 {item.label}
@@ -131,6 +202,32 @@ export function AdminNav() {
           )
         })}
       </ul>
+
+      {/* Back to chat */}
+      <div style={{ padding: '12px 8px 16px', borderTop: '1px solid var(--color-border)' }}>
+        <Link
+          href="/"
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: 8,
+            padding: '9px 12px',
+            borderRadius: 8,
+            background: 'transparent',
+            border: '1px solid var(--color-border)',
+            color: 'var(--color-text-secondary)',
+            fontSize: 'var(--text-body)',
+            fontWeight: 500,
+            textDecoration: 'none',
+            transition: 'background 0.15s',
+          }}
+        >
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M19 12H5M12 5l-7 7 7 7" />
+          </svg>
+          返回对话
+        </Link>
+      </div>
     </nav>
   )
 }

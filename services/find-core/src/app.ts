@@ -60,7 +60,7 @@ function loadConfig(): SourceConfig {
     return JSON.parse(fs.readFileSync(CONFIG_PATH, 'utf8')) as SourceConfig
   } catch {
     return {
-      local: { enabled: true, roots: ['/data/docs'], max_files: 200, max_snippets: 5 },
+      local: { enabled: true, roots: ['/data/docs', '/tmp/find-sync/http'], max_files: 200, max_snippets: 5 },
       mcp: { enabled: true, endpoint: '' },
       db: { enabled: true, host: '', dbname: '' },
       fusion: { weights: { local: 1.0, mcp: 1.0, db: 1.0 }, top_k_default: 5 },
