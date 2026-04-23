@@ -8,7 +8,7 @@ import { encrypt, decrypt, isEncrypted } from '../../lib/crypto.js'
 
 const FIND_CONFIG_PATH =
   process.env.FIND_CONFIG_PATH ??
-  path.resolve(process.cwd(), '../../services/find-core/config/sources.json')
+  '/data/config/sources.json'
 
 async function readSourcesJson(): Promise<Record<string, unknown>> {
   try {
