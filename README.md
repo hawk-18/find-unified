@@ -8,9 +8,8 @@
 
 企业内部往往存在大量分散的知识——技术文档放在 Git 仓库、产品知识存在数据库、外部服务通过 MCP 协议暴露。find-unified 把这三类来源统一聚合，用户只需在聊天界面输入自然语言问题，系统会：
 
-1. 并行检索三个数据源，对结果打分融合
-2. 将检索到的证据片段送入 Claude 生成回答
-3. 通过 SSE 实时流式输出答案，并标注引用来源
+1. CLI并行检索三个数据源后生成回答
+2. 通过 SSE 实时流式输出答案，并标注引用来源
 
 ---
 
@@ -31,7 +30,7 @@
                     ▼
 ┌────────────────────────────────────────────────────┐
 │              services/find-core（:8787）            │
-│           三源并行检索 + BM25 融合排序               │
+│                         三源并行检索                 │
 │                                                    │
 │  ┌──────────┐  ┌──────────┐  ┌──────────────────┐ │
 │  │  local   │  │   MCP    │  │       DB         │ │
@@ -61,13 +60,70 @@ find-unified/
 
 | 功能 | 说明 |
 |------|------|
-| **三源聚合检索** | local（Markdown）/ MCP（外部知识库）/ DB（SQLite）并行查询，BM25 加权融合 |
-| **模糊纠错** | 对拼写错误的关键词（如 `cvtt`）自动计算编辑距离，纠正为最近词再检索 |
-| **LLM 流式回答** | 证据片段送入 Claude，通过 SSE 实时输出答案，带引用来源 |
-| **多平台支持** | `find_core`（直连 Anthropic API）/ `claude_code` / `cursor` / `opencode`（spawn CLI） |
+| **三源聚合检索** | local（Markdown）/ MCP（外部知识库）/ DB（SQLite） |
+| **LLM 流式回答** | 证据片段送入 CLI，通过 SSE 实时输出答案，带引用来源 |
+| **多平台支持** | `claude_code` / `cursor` / `opencode`（spawn CLI） |
 | **Skill 管道** | 可插拔的检索增强指令（pre_search / post_search / post_answer 三阶段） |
 | **对话历史** | 多轮会话记忆，基于 SQLite 持久化 |
 | **管理后台** | 配置数据源、管理 Skill、上传文档、查看审计日志 |
+
+---
+
+## 使用说明
+
+### 提问与对话
+
+打开 http://localhost:3000，在底部输入框输入问题，按 Enter 发送。
+
+- 系统会并行检索三个数据源，将命中的内容片段作为证据，送入 Claude 生成回答
+- 回答下方展示引用来源（本地文件路径 / MCP 条目 / 数据库记录）
+- 支持多轮对话，历史上下文自动保留
+- 点击左侧历史会话可恢复之前的对话
+
+**支持模糊搜索**：输入有拼写错误的关键词（如 `cvtt`）系统会自动计算编辑距离并纠正为最近的词（`cvte`）再检索，无需精确拼写。
+
+### 上传知识文档
+
+有两种方式将文档加入检索：
+
+**方式一：通过管理后台上传**
+
+打开 http://localhost:3000/admin/sync，点击上传区域选择 `.md` 文件，上传后立即可被检索。
+
+**方式二：通过 API 推送**
+
+```bash
+curl -X POST http://localhost:3001/api/ingest/http/push \
+  -H 'Authorization: Bearer mock-admin-token-find-unified' \
+  -H 'Content-Type: application/json' \
+  -d '{"filename": "my-doc.md", "content": "# 标题\n正文内容..."}'
+```
+
+文档格式建议：
+- 以 `# 标题` 开头，find-core 会自动提取作为文档名展示
+- 关键术语建议加粗（`**术语**`），提升检索命中率
+- 每段不超过 500 字，便于片段截取
+
+### 配置数据源
+
+打开 http://localhost:3000/admin/sources：
+
+- **MCP**：填写 MCP 服务地址（如 `http://localhost:9090`），该服务需暴露 `find_search` 工具
+- **SQLite**：填写数据库路径（格式 `file:/path/to/db.db`），find-core 会检索其中的 `knowledge_articles` 表
+
+配置保存后立即生效，无需重启。
+
+### 管理 Skill
+
+打开 http://localhost:3000/admin/skills，可启用/禁用各阶段的 Skill：
+
+- `pre_search` 阶段的 Skill 会在检索前对 query 进行扩展或过滤
+- `post_search` 阶段的 Skill 会对检索结果重排序或去重
+- `post_answer` 阶段的 Skill 会对回答进行格式化或推荐相关问题
+
+### 查看审计日志
+
+打开 http://localhost:3000/admin/audit，可查看所有管理操作记录（数据源变更、Skill 修改等）。
 
 ---
 
@@ -201,28 +257,7 @@ Content-Type: application/json
 
 ---
 
-## 检索原理
 
-### 关键词提取
-
-对用户 query 提取两类词：
-- ASCII token（如 `cvte`、`api`）：≥2 字符的英数字段
-- 中文词段：按助词、连词分割，保留 ≥2 字的实词
-
-### 模糊纠错
-
-每个 ASCII token 会与文档词典比对：
-- 若 token 在词典中不存在，计算编辑距离
-- ≤5 字符：允许 1 步错误；更长：允许 2 步
-- 将纠正词追加到 keywords 列表（不替换原词，避免误判）
-
-例：输入 `cvtt` → 词典有 `cvte` → 编辑距离 1 → 自动补充 `cvte` 参与检索
-
-### BM25 评分融合
-
-三源各自评分（每命中一个关键词 +2 分，标题行 +2 分），乘以各源权重系数后合并，按分数降序取 top-k 条 Evidence 送入 LLM。
-
----
 
 ## 数据源详解
 
