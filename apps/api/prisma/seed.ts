@@ -37,7 +37,7 @@ async function main() {
     create: {
       sourceType: 'db',
       enabled: false,
-      configJson: '{"host":"","port":5432,"dbname":"","user":"","password":""}',
+      configJson: '{"url":"file:/tmp/find_unified_dev.db"}',
       updatedBy: 'seed',
     },
   })

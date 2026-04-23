@@ -2,20 +2,8 @@
   "local": {
     "enabled": true,
     "roots": [
-      "/tmp/find-sync/http",
-      "/Users/cc/find-unified/apps/api/cvte.md",
-      "/Users/cc/DESIGN.md",
-      "/Users/cc/find-unified/README.md"
-    ],
-    "include_globs": [
-      "knowledge/**/*.md",
-      "docs/**/*.md",
-      "notes/**/*.md",
-      "**/*.md"
-    ],
-    "exclude_globs": [
-      "**/node_modules/**",
-      "**/.git/**"
+      "/data/docs",
+      "/tmp/find-sync/http"
     ],
     "max_files": 2000,
     "max_snippets": 5
@@ -27,11 +15,7 @@
   },
   "db": {
     "enabled": true,
-    "host": "localhost",
-    "port": 5432,
-    "dbname": "find_unified",
-    "user": "postgres",
-    "password": "1234"
+    "url": "file:/tmp/find_unified_dev.db"
   },
   "fusion": {
     "weights": {

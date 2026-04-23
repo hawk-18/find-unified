@@ -10,18 +10,20 @@
 # ── 公共基础层 ────────────────────────────────────────────────────────────────
 FROM node:22-alpine AS base
 RUN npm install -g pnpm@10.33.0
+# better-sqlite3 需要原生编译工具
+RUN apk add --no-cache python3 make g++
 
-# ── 依赖层：安装所有服务依赖（利用层缓存）─────────────────────────────────────
+# ── 依赖层 ────────────────────────────────────────────────────────────────────
 FROM base AS deps
 WORKDIR /app
-COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
-COPY apps/api/package.json        ./apps/api/
-COPY apps/web/package.json        ./apps/web/
+COPY package.json pnpm-lock.yaml pnpm-workspace.yaml .npmrc ./
+COPY apps/api/package.json           ./apps/api/
+COPY apps/web/package.json           ./apps/web/
 COPY services/find-core/package.json ./services/find-core/
 COPY services/mcp-mock/package.json  ./services/mcp-mock/
 RUN pnpm install --frozen-lockfile
 
-# ── 构建层：编译所有需要编译的服务 ───────────────────────────────────────────
+# ── 构建层 ────────────────────────────────────────────────────────────────────
 FROM deps AS builder
 WORKDIR /app
 COPY apps/api        ./apps/api
@@ -30,7 +32,7 @@ COPY services/find-core ./services/find-core
 COPY services/mcp-mock  ./services/mcp-mock
 
 # api: prisma generate + tsc
-RUN cd apps/api && npx prisma generate
+RUN cd apps/api && DATABASE_URL="file:/tmp/build.db" npx prisma generate
 RUN pnpm --filter @find-unified/api build
 
 # web: next build
@@ -45,12 +47,14 @@ RUN pnpm --filter @find-unified/find-core build
 # ── 运行目标：api ─────────────────────────────────────────────────────────────
 FROM base AS api
 WORKDIR /app
-COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
+COPY package.json pnpm-lock.yaml pnpm-workspace.yaml .npmrc ./
 COPY apps/api/package.json ./apps/api/
 RUN pnpm install --frozen-lockfile --filter @find-unified/api... --prod
 COPY --from=builder /app/apps/api/dist              ./apps/api/dist
 COPY --from=builder /app/apps/api/node_modules/.prisma ./apps/api/node_modules/.prisma
 COPY apps/api/prisma ./apps/api/prisma
+# skills 目录挂载到容器，这里建好空目录
+RUN mkdir -p /data/docs /data/db /app/apps/api/skills
 WORKDIR /app/apps/api
 EXPOSE 3001
 CMD ["sh", "-c", "npx prisma migrate deploy && node dist/index.js"]
@@ -68,11 +72,12 @@ CMD ["node", "apps/web/server.js"]
 # ── 运行目标：find-core ───────────────────────────────────────────────────────
 FROM base AS find-core
 WORKDIR /app
-COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
+COPY package.json pnpm-lock.yaml pnpm-workspace.yaml .npmrc ./
 COPY services/find-core/package.json ./services/find-core/
 RUN pnpm install --frozen-lockfile --filter @find-unified/find-core... --prod
 COPY --from=builder /app/services/find-core/dist ./services/find-core/dist
 COPY services/find-core/config                   ./services/find-core/config
+RUN mkdir -p /data/docs
 WORKDIR /app/services/find-core
 EXPOSE 8787
 CMD ["node", "dist/index.js"]
@@ -80,7 +85,7 @@ CMD ["node", "dist/index.js"]
 # ── 运行目标：mcp-mock ────────────────────────────────────────────────────────
 FROM base AS mcp-mock
 WORKDIR /app
-COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
+COPY package.json pnpm-lock.yaml pnpm-workspace.yaml .npmrc ./
 COPY services/mcp-mock/package.json ./services/mcp-mock/
 RUN pnpm install --frozen-lockfile --filter @find-unified/mcp-mock...
 COPY services/mcp-mock ./services/mcp-mock

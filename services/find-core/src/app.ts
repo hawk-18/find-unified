@@ -7,9 +7,7 @@ import { z } from 'zod'
 import { Client } from '@modelcontextprotocol/sdk/client/index.js'
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js'
 import { SSEClientTransport } from '@modelcontextprotocol/sdk/client/sse.js'
-import pg from 'pg'
-
-const { Pool } = pg
+import Database from 'better-sqlite3'
 
 const CONFIG_PATH =
   process.env.FIND_CONFIG_PATH ||
@@ -20,7 +18,7 @@ const CONFIG_PATH =
 interface SourceConfig {
   local?: { enabled?: boolean; roots?: string[]; max_files?: number; max_snippets?: number }
   mcp?: { enabled?: boolean; endpoint?: string; timeout_ms?: number }
-  db?: { enabled?: boolean; host?: string; port?: number; dbname?: string; user?: string; password?: string }
+  db?: { enabled?: boolean; url?: string }
   fusion?: { weights?: { local?: number; mcp?: number; db?: number }; top_k_default?: number }
 }
 
@@ -323,9 +321,9 @@ async function findMcp(
   }
 }
 
-// ─── PostgreSQL search ────────────────────────────────────────────────────────
+// ─── SQLite search ────────────────────────────────────────────────────────────
 
-async function findPostgres(
+async function findSqlite(
   query: string,
   cfg: SourceConfig
 ): Promise<{ status: SourceStatus; evidence: Evidence[] }> {
@@ -338,96 +336,49 @@ async function findPostgres(
       evidence: [],
     }
   }
-  if (!dbCfg.host || !dbCfg.dbname) {
+
+  const dbUrl = dbCfg.url ?? process.env.DATABASE_URL ?? ''
+  const dbPath = dbUrl.replace(/^file:/, '')
+
+  if (!dbPath) {
     return {
-      status: { source: 'db', status: 'degraded', message: '未配置数据库连接信息', latency_ms: nowMs() - start },
+      status: { source: 'db', status: 'degraded', message: '未配置 SQLite 路径', latency_ms: nowMs() - start },
       evidence: [],
     }
   }
 
-  const pool = new Pool({
-    host: dbCfg.host,
-    port: dbCfg.port ?? 5432,
-    database: dbCfg.dbname,
-    user: dbCfg.user,
-    password: dbCfg.password,
-    connectionTimeoutMillis: 5000,
-    query_timeout: 8000,
-    max: 2,
-  })
-
   try {
-    const client = await pool.connect()
+    const db = new Database(dbPath, { readonly: true })
+    const keywords = extractKeywords(query)
     const evidence: Evidence[] = []
 
+    // Search knowledge_articles
+    const likeParams = keywords.map((kw) => `%${kw}%`)
+    const whereClauses = keywords.map(() => `(title LIKE ? OR content LIKE ?)`).join(' OR ')
+    const params = keywords.flatMap((kw) => [`%${kw}%`, `%${kw}%`])
+
     try {
-      // Discover text-searchable tables: look for tables with common text columns
-      const tablesRes = await client.query<{ table_name: string; column_name: string }>(`
-        SELECT t.table_name, c.column_name
-        FROM information_schema.tables t
-        JOIN information_schema.columns c ON c.table_name = t.table_name AND c.table_schema = t.table_schema
-        WHERE t.table_schema = 'public'
-          AND t.table_type = 'BASE TABLE'
-          AND t.table_name NOT IN ('messages', 'conversations', 'users', 'audit_logs', 'sync_jobs', 'skills', 'source_configs', 'message_evidence', '_prisma_migrations')
-          AND c.data_type IN ('text', 'character varying', 'varchar')
-          AND c.column_name NOT IN ('password', 'token', 'secret', 'id')
-          AND (c.character_maximum_length IS NULL OR c.character_maximum_length > 50)
-        ORDER BY t.table_name, c.ordinal_position
-        LIMIT 50
-      `)
+      const rows = db.prepare(
+        `SELECT id, title, content, category, tags FROM knowledge_articles WHERE ${whereClauses} LIMIT 20`
+      ).all(...params) as Array<{ id: string; title: string; content: string; category: string; tags: string }>
 
-      // Group columns by table, pick first 2 text columns per table
-      const tableMap = new Map<string, string[]>()
-      for (const row of tablesRes.rows) {
-        const cols = tableMap.get(row.table_name) ?? []
-        if (cols.length < 2) cols.push(row.column_name)
-        tableMap.set(row.table_name, cols)
+      for (const row of rows) {
+        const score = scoreSnippet(`${row.title} ${row.content}`, keywords)
+        if (score <= 0) continue
+        const snippet = row.content.slice(0, 300)
+        evidence.push({
+          id: `db-${evidence.length + 1}`,
+          source_type: 'db',
+          title: row.title,
+          snippet,
+          score: Number((score * (cfg.fusion?.weights?.db ?? 1.0)).toFixed(2)),
+          source_ref: `db:knowledge_articles/${row.id}`,
+        })
       }
+    } catch { /* table may not exist */ }
 
-      const keywords = extractKeywords(query)
-      // Build OR conditions for each keyword so mixed-language queries like "检索cvte" still hit
-      for (const [table, cols] of tableMap) {
-        if (evidence.length >= 5) break
-        if (cols.length === 0) continue
-
-        const displayCol = cols[0]
-        const snippetCol = cols[1] ?? cols[0]
-
-        // Build: (col ILIKE $1 OR col ILIKE $2 ...) for each keyword
-        const params: string[] = keywords.map((kw) => `%${kw}%`)
-        const colConditions = cols
-          .map((c) => params.map((_, i) => `"${c}" ILIKE $${i + 1}`).join(' OR '))
-          .join(' OR ')
-
-        try {
-          const res = await client.query<Record<string, unknown>>(
-            `SELECT "${displayCol}", "${snippetCol}" FROM "${table}" WHERE ${colConditions} LIMIT 10`,
-            params
-          )
-          for (const row of res.rows) {
-            const title = String(row[displayCol] ?? '').slice(0, 80)
-            const snippet = String(row[snippetCol] ?? '').slice(0, 300)
-            const score = scoreSnippet(`${title} ${snippet}`, keywords)
-            evidence.push({
-              id: `db-${evidence.length + 1}`,
-              source_type: 'db',
-              title: title || `${table} 记录`,
-              snippet,
-              score: Number((score * (cfg.fusion?.weights?.db ?? 1.0)).toFixed(2)),
-              source_ref: `db:${dbCfg.host}/${dbCfg.dbname}/${table}`,
-            })
-          }
-        } catch {
-          // Skip tables with permission issues or schema mismatches
-        }
-      }
-
-      evidence.sort((a, b) => b.score - a.score)
-    } finally {
-      client.release()
-    }
-
-    await pool.end()
+    db.close()
+    evidence.sort((a, b) => b.score - a.score)
 
     return {
       status: {
@@ -439,12 +390,11 @@ async function findPostgres(
       evidence: evidence.slice(0, 5),
     }
   } catch (err) {
-    await pool.end().catch(() => {})
     return {
       status: {
         source: 'db',
         status: 'degraded',
-        message: `数据库连接失败: ${String(err).slice(0, 100)}`,
+        message: `SQLite 查询失败: ${String(err).slice(0, 100)}`,
         latency_ms: nowMs() - start,
       },
       evidence: [],
@@ -527,7 +477,7 @@ export async function buildApp() {
     }
 
     if (sources.includes('db')) {
-      const r = await findPostgres(query, cfg)
+      const r = await findSqlite(query, cfg)
       sourceStatus.push(r.status)
       evidence = evidence.concat(r.evidence)
     }

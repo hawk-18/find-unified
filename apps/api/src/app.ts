@@ -8,7 +8,6 @@ import { systemAdminRoutes } from './routes/admin/system.js'
 import { syncAdminRoutes } from './routes/admin/sync.js'
 import { meRoutes } from './routes/me.js'
 import { ingestRoutes } from './routes/ingest.js'
-import { ingestWorker } from './queue/ingest.worker.js'
 
 export async function buildApp() {
   const isDev = process.env.NODE_ENV === 'development'
@@ -35,8 +34,6 @@ export async function buildApp() {
   app.get('/health', async () => {
     return { status: 'ok' }
   })
-
-  app.log.info(`ingest worker ready (id: ${ingestWorker.id})`)
 
   app.register(conversationsRoutes, { prefix: '/api/conversations' })
   app.register(findRoutes)

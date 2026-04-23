@@ -82,6 +82,7 @@ async function buildSystemPrompt(): Promise<string> {
       sections.push(`## [${stageLabel}] ${s.name}\n${s.body}`)
     }
   }
+  sections.push('## 全局规则\n只输出一次完整回答，严禁重复输出相同内容。不要在回答末尾添加「参考文档」小节，来源由系统界面展示。')
   return sections.join('\n\n')
 }
 
@@ -222,9 +223,7 @@ function spawnCliStream(
               }
             }
           }
-          if (evt.type === 'result' && evt.subtype === 'success' && evt.result) {
-            onChunk(evt.result)
-          }
+          // 'result' is a summary of what was already streamed via 'assistant' events — skip to avoid duplication
         } catch { /* skip non-JSON lines */ }
       }
     })

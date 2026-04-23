@@ -1,26 +1,4 @@
 services:
-  postgres:
-    image: postgres:16-alpine
-    environment:
-      POSTGRES_DB: find_unified
-      POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: "1234"
-    volumes:
-      - postgres_data:/var/lib/postgresql/data
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U postgres"]
-      interval: 5s
-      timeout: 5s
-      retries: 10
-
-  redis:
-    image: redis:7-alpine
-    healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
-      interval: 5s
-      timeout: 5s
-      retries: 10
-
   find-core:
     build:
       context: .
@@ -28,6 +6,10 @@ services:
       target: find-core
     environment:
       FIND_CORE_PORT: "8787"
+      FIND_CONFIG_PATH: /data/config/sources.json
+    volumes:
+      - docs_data:/data/docs
+      - config_data:/data/config
     ports:
       - "8787:8787"
 
@@ -49,24 +31,23 @@ services:
     environment:
       NODE_ENV: production
       API_PORT: "3001"
-      DATABASE_URL: postgresql://postgres:1234@postgres:5432/find_unified
-      REDIS_HOST: redis
-      REDIS_PORT: "6379"
+      DATABASE_URL: file:/data/db/find_unified.db
       FIND_CORE_URL: http://find-core:8787
+      FIND_CONFIG_PATH: /data/config/sources.json
+      SYNC_HTTP_DIR: /data/docs
+      INGEST_TOKEN: ${INGEST_TOKEN:-ingest-dev-token}
       ANTHROPIC_AUTH_TOKEN: ${ANTHROPIC_AUTH_TOKEN}
       ANTHROPIC_BASE_URL: ${ANTHROPIC_BASE_URL}
-      ENCRYPTION_KEY: ${ENCRYPTION_KEY}
+    volumes:
+      - db_data:/data/db
+      - docs_data:/data/docs
+      - config_data:/data/config
+      - skills_data:/app/apps/api/skills
     ports:
       - "3001:3001"
     depends_on:
-      postgres:
-        condition: service_healthy
-      redis:
-        condition: service_healthy
-      find-core:
-        condition: service_started
-      mcp-mock:
-        condition: service_started
+      - find-core
+      - mcp-mock
 
   web:
     build:
@@ -84,4 +65,7 @@ services:
       - api
 
 volumes:
-  postgres_data:
+  db_data:
+  docs_data:
+  config_data:
+  skills_data:

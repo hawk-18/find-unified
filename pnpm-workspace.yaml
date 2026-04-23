@@ -7,3 +7,4 @@ onlyBuiltDependencies:
   - 'prisma'
   - 'esbuild'
   - 'msgpackr-extract'
+  - 'better-sqlite3'

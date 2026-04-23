@@ -38,13 +38,13 @@ const KNOWLEDGE: Array<{ title: string; content: string; tags: string[] }> = [
     tags: ['mcp', 'configuration', 'admin'],
   },
   {
-    title: 'PostgreSQL 数据源接入说明',
+    title: 'SQLite 数据源接入说明',
     content:
-      '进入 /admin/sources 页面，切换到 PostgreSQL 选项卡。\n' +
-      '填写 host、port、database、user、password 后保存。\n' +
-      'find-core 会自动发现 public schema 下含有文本列的表，并执行 ILIKE 检索。\n' +
-      '敏感字段（password）在数据库中加密存储，写入 sources.json 时自动解密。',
-    tags: ['postgresql', 'database', 'configuration'],
+      '进入 /admin/sources 页面，切换到 SQLite 选项卡。\n' +
+      '填写数据库文件路径（格式：file:/path/to/db.db）后保存。\n' +
+      'find-core 会检索 knowledge_articles 表中的内容。\n' +
+      '数据库文件路径写入 sources.json，find-core 自动加载。',
+    tags: ['sqlite', 'database', 'configuration'],
   },
   {
     title: '文档同步：Git 仓库',

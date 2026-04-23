@@ -68,12 +68,9 @@ const mcpBodySchema = z.object({
   enabled: z.boolean(),
 })
 
-const postgresBodySchema = z.object({
-  host: z.string(),
-  port: z.number().int().min(1).max(65535),
-  dbname: z.string(),
-  user: z.string(),
-  password: z.string().optional(),
+const sqliteBodySchema = z.object({
+  url: z.string().min(1, '必填').refine((v) => v.startsWith('file:'), { message: '必须以 file: 开头' }),
+  enabled: z.boolean(),
 })
 
 export async function sourcesAdminRoutes(app: FastifyInstance) {
@@ -120,43 +117,26 @@ export async function sourcesAdminRoutes(app: FastifyInstance) {
     return reply.status(200).send({ ok: true })
   })
 
-  // GET /postgres
-  app.get('/postgres', { preHandler }, async (_request, reply) => {
+  // GET /sqlite
+  app.get('/sqlite', { preHandler }, async (_request, reply) => {
     const config = await prisma.sourceConfig.findUnique({ where: { sourceType: 'db' } })
     if (!config) return reply.status(404).send({ error: 'Not found' })
     return reply.send({ ...config, configJson: undefined, config: maskSensitive(config.configJson) })
   })
 
-  // PUT /postgres
-  app.put('/postgres', { preHandler }, async (request, reply) => {
-    const parsed = postgresBodySchema.safeParse(request.body)
+  // PUT /sqlite
+  app.put('/sqlite', { preHandler }, async (request, reply) => {
+    const parsed = sqliteBodySchema.safeParse(request.body)
     if (!parsed.success) {
       return reply.status(400).send({ error: 'Invalid request', details: parsed.error.issues })
     }
-    const { host, port, dbname, user, password } = parsed.data
-
-    // Read existing config to preserve password if not provided
-    const existing = await prisma.sourceConfig.findUnique({ where: { sourceType: 'db' } })
-    let existingConfig: Record<string, unknown> = {}
-    try {
-      existingConfig = existing ? JSON.parse(existing.configJson) : {}
-    } catch { /* ignore */ }
-
-    const newConfig: Record<string, unknown> = { host, port, dbname, user }
-    if (password !== undefined && password !== '') {
-      newConfig.password = password
-    } else {
-      // Preserve existing (already-encrypted) password value as-is
-      newConfig.password = existingConfig.password ?? ''
-    }
-
-    // Encrypt sensitive fields before storing (skips already-encrypted values)
-    const configJson = JSON.stringify(encryptSensitive(newConfig))
+    const { url, enabled } = parsed.data
+    const configJson = JSON.stringify({ url })
 
     await prisma.sourceConfig.upsert({
       where: { sourceType: 'db' },
-      update: { configJson, updatedBy: request.user!.userId },
-      create: { sourceType: 'db', enabled: false, configJson, updatedBy: request.user!.userId },
+      update: { enabled, configJson, updatedBy: request.user!.userId },
+      create: { sourceType: 'db', enabled, configJson, updatedBy: request.user!.userId },
     })
 
     await prisma.auditLog.create({
@@ -165,17 +145,11 @@ export async function sourcesAdminRoutes(app: FastifyInstance) {
         action: 'update_source_config',
         targetType: 'source_config',
         targetId: 'db',
-        detailJson: JSON.stringify({ host, port, dbname, user }),
+        detailJson: JSON.stringify({ url, enabled }),
       },
     })
 
-    // Sync to find-core sources.json (password decrypted so find-core can use it directly)
-    const plainPassword = decryptIfNeeded(
-      (newConfig.password as string | undefined) ?? ''
-    )
-    await writeSourcesJson({
-      db: { enabled: true, host, port, dbname, user, password: plainPassword },
-    })
+    await writeSourcesJson({ db: { enabled, url } })
 
     return reply.status(200).send({ ok: true })
   })
