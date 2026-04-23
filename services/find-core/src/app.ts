@@ -102,6 +102,69 @@ function scoreSnippet(text: string, keywords: string[]): number {
   return score
 }
 
+// ─── Fuzzy correction (edit distance) ────────────────────────────────────────
+
+function editDistance(a: string, b: string): number {
+  const m = a.length, n = b.length
+  const dp: number[][] = Array.from({ length: m + 1 }, (_, i) => [i, ...Array(n).fill(0)])
+  for (let j = 0; j <= n; j++) dp[0][j] = j
+  for (let i = 1; i <= m; i++) {
+    for (let j = 1; j <= n; j++) {
+      dp[i][j] = a[i - 1] === b[j - 1]
+        ? dp[i - 1][j - 1]
+        : 1 + Math.min(dp[i - 1][j], dp[i][j - 1], dp[i - 1][j - 1])
+    }
+  }
+  return dp[m][n]
+}
+
+// Build a vocabulary of ASCII tokens found across all indexed files
+function buildVocab(files: string[]): Set<string> {
+  const vocab = new Set<string>()
+  for (const file of files) {
+    let content: string
+    try { content = fs.readFileSync(file, 'utf8') } catch { continue }
+    for (const m of content.toLowerCase().matchAll(/[a-z0-9]{2,}/g)) {
+      vocab.add(m[0])
+    }
+  }
+  return vocab
+}
+
+// For a given token, find the closest word in vocab within maxDist
+function findClosest(token: string, vocab: Set<string>, maxDist: number): string | null {
+  let best: string | null = null
+  let bestDist = maxDist + 1
+  for (const word of vocab) {
+    // Skip if length difference is too large (quick pre-filter)
+    if (Math.abs(word.length - token.length) > maxDist) continue
+    const d = editDistance(token, word)
+    if (d > 0 && d <= maxDist && d < bestDist) {
+      bestDist = d
+      best = word
+    }
+  }
+  return best
+}
+
+// Expand keywords: for each ASCII token not found in vocab, add the closest match
+function expandWithFuzzy(keywords: string[], vocab: Set<string>): string[] {
+  const expanded = [...keywords]
+  for (const kw of keywords) {
+    // Only apply to ASCII tokens
+    if (!/^[a-z0-9]+$/.test(kw)) continue
+    // Already exists in vocab → no correction needed
+    if (vocab.has(kw)) continue
+    // Max edit distance scales with token length: 1 for ≤5 chars, 2 for longer
+    const maxDist = kw.length <= 5 ? 1 : 2
+    const correction = findClosest(kw, vocab, maxDist)
+    if (correction && !expanded.includes(correction)) {
+      expanded.push(correction)
+    }
+  }
+  return expanded
+}
+
 function extractKeywords(query: string): string[] {
   const lower = query.toLowerCase()
   // Extract ASCII tokens (e.g. "cvte", "api", "v2")
@@ -151,6 +214,9 @@ function findLocal(
   for (const r of roots) walkMdFiles(r, maxFiles, files)
 
   const keywords = extractKeywords(query)
+  // Build vocab from indexed files and expand keywords with fuzzy correction
+  const vocab = buildVocab(files)
+  const expandedKeywords = expandWithFuzzy(keywords, vocab)
   const scored: { file: string; snippet: string; score: number }[] = []
 
   for (const file of files) {
@@ -163,7 +229,7 @@ function findLocal(
     const lines = content.split('\n')
     for (let i = 0; i < lines.length; i++) {
       const line = lines[i]
-      const s = scoreSnippet(line, keywords)
+      const s = scoreSnippet(line, expandedKeywords)
       if (s <= 0) continue
       const prev = lines[i - 1] || ''
       const next = lines[i + 1] || ''
@@ -350,12 +416,24 @@ async function findSqlite(
   try {
     const db = new Database(dbPath, { readonly: true })
     const keywords = extractKeywords(query)
+
+    // Build vocab from DB content and expand with fuzzy correction
+    const dbVocab = new Set<string>()
+    try {
+      const allRows = db.prepare('SELECT title, content, tags FROM knowledge_articles LIMIT 500').all() as Array<{ title: string; content: string; tags: string }>
+      for (const row of allRows) {
+        for (const m of `${row.title} ${row.content} ${row.tags}`.toLowerCase().matchAll(/[a-z0-9]{2,}/g)) {
+          dbVocab.add(m[0])
+        }
+      }
+    } catch { /* table may not exist */ }
+    const expandedKeywords = expandWithFuzzy(keywords, dbVocab)
+
     const evidence: Evidence[] = []
 
     // Search knowledge_articles
-    const likeParams = keywords.map((kw) => `%${kw}%`)
-    const whereClauses = keywords.map(() => `(title LIKE ? OR content LIKE ?)`).join(' OR ')
-    const params = keywords.flatMap((kw) => [`%${kw}%`, `%${kw}%`])
+    const whereClauses = expandedKeywords.map(() => `(title LIKE ? OR content LIKE ?)`).join(' OR ')
+    const params = expandedKeywords.flatMap((kw) => [`%${kw}%`, `%${kw}%`])
 
     try {
       const rows = db.prepare(
@@ -363,7 +441,7 @@ async function findSqlite(
       ).all(...params) as Array<{ id: string; title: string; content: string; category: string; tags: string }>
 
       for (const row of rows) {
-        const score = scoreSnippet(`${row.title} ${row.content}`, keywords)
+        const score = scoreSnippet(`${row.title} ${row.content}`, expandedKeywords)
         if (score <= 0) continue
         const snippet = row.content.slice(0, 300)
         evidence.push({
