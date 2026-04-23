@@ -8,7 +8,9 @@ import { prisma } from '../lib/prisma.js'
 import { authenticate } from '../plugins/auth.js'
 
 const anthropic = new Anthropic({
-  apiKey: process.env.ANTHROPIC_AUTH_TOKEN ?? process.env.ANTHROPIC_API_KEY ?? '',
+  ...(process.env.ANTHROPIC_AUTH_TOKEN
+    ? { authToken: process.env.ANTHROPIC_AUTH_TOKEN }
+    : { apiKey: process.env.ANTHROPIC_API_KEY }),
   baseURL: process.env.ANTHROPIC_BASE_URL,
 })
 
@@ -413,11 +415,6 @@ export async function findRoutes(app: FastifyInstance) {
             fullAnswer += chunk
             sendEvent('chunk', JSON.stringify({ text: chunk }))
           })
-          if (skillNames.length > 0) {
-            const footer = `\n\n已应用 Skill：${skillNames.join('、')}`
-            fullAnswer += footer
-            sendEvent('chunk', JSON.stringify({ text: footer }))
-          }
         } catch {
           // CLI unavailable — fall back to raw evidence summary
           const coreEvidence = (coreData.evidence as Array<{ title: string; snippet: string }>) ?? []
@@ -434,6 +431,7 @@ export async function findRoutes(app: FastifyInstance) {
           evidence,
           source_status: (coreData.source_status as unknown[]) ?? [{ source: platform, status: 'ok' }],
           trace_id: (coreData.trace_id as string) ?? `${platform}-${Date.now()}`,
+          skill_names: skillNames,
         }))
 
         if (request.user && convId) {
@@ -503,11 +501,6 @@ ${body.query}`,
               sendEvent('chunk', JSON.stringify({ text: event.delta.text }))
             }
           }
-          if (skillNames.length > 0) {
-            const footer = `\n\n已应用 Skill：${skillNames.join('、')}`
-            fullAnswer += footer
-            sendEvent('chunk', JSON.stringify({ text: footer }))
-          }
         } catch {
           // LLM unavailable — build fallback answer incorporating history if relevant
           const historyContext = history.length
@@ -525,6 +518,7 @@ ${body.query}`,
           evidence,
           source_status: (data.source_status as unknown[]) ?? [],
           trace_id: (data.trace_id as string) ?? `find_core-${Date.now()}`,
+          skill_names: skillNames,
         }
         sendEvent('done', JSON.stringify(result))
 
