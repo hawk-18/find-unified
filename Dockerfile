@@ -10,8 +10,8 @@
 # ── 公共基础层 ────────────────────────────────────────────────────────────────
 FROM node:22-alpine AS base
 RUN npm install -g pnpm@10.33.0
-# better-sqlite3 需要原生编译工具
-RUN apk add --no-cache python3 make g++
+# better-sqlite3 需要原生编译工具；openssl/libc6-compat 供 Prisma；sqlite-libs 供 better-sqlite3
+RUN apk add --no-cache python3 make g++ openssl libc6-compat sqlite-libs
 
 # ── 依赖层 ────────────────────────────────────────────────────────────────────
 FROM base AS deps
@@ -67,13 +67,15 @@ CMD ["sh", "-c", "\
 
 # ── 运行目标：web ─────────────────────────────────────────────────────────────
 FROM node:22-alpine AS web
-WORKDIR /app/apps/web
+WORKDIR /app
+# standalone 已包含 server.js 及所有 node_modules，直接拷贝
 COPY --from=builder /app/apps/web/.next/standalone  ./
-COPY --from=builder /app/apps/web/.next/static      ./apps/web/.next/static
-COPY --from=builder /app/apps/web/public            ./apps/web/public
+# 静态资源和 public 需额外拷贝到对应路径
+COPY --from=builder /app/apps/web/.next/static      ./.next/static
+COPY --from=builder /app/apps/web/public            ./public
 EXPOSE 3000
 ENV PORT=3000
-CMD ["node", "apps/web/server.js"]
+CMD ["node", "server.js"]
 
 # ── 运行目标：find-core ───────────────────────────────────────────────────────
 FROM base AS find-core
@@ -102,4 +104,4 @@ RUN pnpm install --frozen-lockfile --filter @find-unified/mcp-mock...
 COPY services/mcp-mock ./services/mcp-mock
 WORKDIR /app/services/mcp-mock
 EXPOSE 9090
-CMD ["npx", "tsx", "src/index.ts"]
+CMD ["node_modules/.bin/tsx", "src/index.ts"]

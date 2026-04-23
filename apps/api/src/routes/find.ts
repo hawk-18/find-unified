@@ -163,7 +163,7 @@ function spawnCli(cmd: string, args: string[]): Promise<string> {
       stdio: ['ignore', 'pipe', 'pipe'],
       timeout: 90000,
       cwd: '/tmp',
-      env: { ...process.env, PATH: `/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:${process.env.PATH ?? ''}` },
+      env: { ...process.env, PATH: `/usr/local/bin:/usr/bin:/bin:${process.env.PATH ?? ''}` },
     })
     let stdout = ''
     let stderr = ''
@@ -195,7 +195,7 @@ function spawnCliStream(
       stdio: ['ignore', 'pipe', 'pipe'],
       timeout: 90000,
       cwd: '/tmp',
-      env: { ...process.env, PATH: `/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:${process.env.PATH ?? ''}` },
+      env: { ...process.env, PATH: `/usr/local/bin:/usr/bin:/bin:${process.env.PATH ?? ''}` },
     })
     let stderr = ''
     let buffer = ''
@@ -241,10 +241,9 @@ async function buildCliContext(): Promise<string> {
 
   // ── 1. 数据源配置 ─────────────────────────────────────────────────────────
   try {
-    const sourcesRaw = await fs.readFile(
-      path.resolve(process.cwd(), '../../services/find-core/config/sources.json'),
-      'utf-8'
-    )
+    const sourcesPath = process.env.FIND_CONFIG_PATH ||
+      path.resolve(process.cwd(), '../../services/find-core/config/sources.json')
+    const sourcesRaw = await fs.readFile(sourcesPath, 'utf-8')
     const sources = JSON.parse(sourcesRaw) as {
       local?: { enabled?: boolean; roots?: string[] }
       mcp?: { enabled?: boolean; endpoint?: string }
@@ -296,11 +295,13 @@ async function searchViaCli(platform: string, query: string): Promise<unknown> {
     : query
 
   let output: string
+  const claudeCmd = process.env.CLAUDE_CLI_PATH || 'claude'
+  const opencodeCmd = process.env.OPENCODE_CLI_PATH || 'opencode'
   if (platform === 'opencode') {
-    output = await spawnCli('/opt/homebrew/bin/opencode', ['run', prompt])
+    output = await spawnCli(opencodeCmd, ['run', prompt])
   } else {
     // claude_code (default)
-    output = await spawnCli('/opt/homebrew/bin/claude', ['-p', prompt])
+    output = await spawnCli(claudeCmd, ['-p', prompt])
   }
   return {
     answer: output,
@@ -446,8 +447,8 @@ export async function findRoutes(app: FastifyInstance) {
         ].filter(Boolean).join('\n\n')
 
         const cliCmd = effectivePlatform === 'opencode'
-          ? { cmd: '/opt/homebrew/bin/opencode', args: ['run', prompt] }
-          : { cmd: '/opt/homebrew/bin/claude', args: ['-p', prompt] }
+          ? { cmd: process.env.OPENCODE_CLI_PATH || 'opencode', args: ['run', prompt] }
+          : { cmd: process.env.CLAUDE_CLI_PATH || 'claude', args: ['-p', prompt] }
 
         let fullAnswer = ''
         try {
@@ -649,7 +650,7 @@ ${body.query}`,
           ].filter(Boolean).join('\n\n')
 
           const cliOutput = await spawnCli(
-            effectivePlatform === 'opencode' ? '/opt/homebrew/bin/opencode' : '/opt/homebrew/bin/claude',
+            effectivePlatform === 'opencode' ? (process.env.OPENCODE_CLI_PATH || 'opencode') : (process.env.CLAUDE_CLI_PATH || 'claude'),
             effectivePlatform === 'opencode' ? ['run', prompt] : ['-p', prompt],
           )
           responseBody = {

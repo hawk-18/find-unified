@@ -11,7 +11,7 @@ import Database from 'better-sqlite3'
 
 const CONFIG_PATH =
   process.env.FIND_CONFIG_PATH ||
-  '/Users/cc/find-unified/services/find-core/config/sources.json'
+  '/data/config/sources.json'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -60,7 +60,7 @@ function loadConfig(): SourceConfig {
     return JSON.parse(fs.readFileSync(CONFIG_PATH, 'utf8')) as SourceConfig
   } catch {
     return {
-      local: { enabled: true, roots: ['/Users/cc'], max_files: 200, max_snippets: 5 },
+      local: { enabled: true, roots: ['/data/docs'], max_files: 200, max_snippets: 5 },
       mcp: { enabled: true, endpoint: '' },
       db: { enabled: true, host: '', dbname: '' },
       fusion: { weights: { local: 1.0, mcp: 1.0, db: 1.0 }, top_k_default: 5 },
@@ -144,7 +144,7 @@ function findLocal(
   }
 
   const roots =
-    Array.isArray(cfg.local?.roots) && cfg.local.roots.length ? cfg.local.roots : ['/Users/cc']
+    Array.isArray(cfg.local?.roots) && cfg.local.roots.length ? cfg.local.roots : ['/data/docs']
   const maxFiles = Number(cfg.local?.max_files || 200)
   const maxSnippets = Number(cfg.local?.max_snippets || 5)
   const files: string[] = []
