@@ -1,0 +1,45 @@
+:root {
+  /* ── Colors ── */
+  --color-bg: #ffffff;
+  --color-brand: #ff385c;
+  --color-brand-pressed: #e00b41;
+  --color-text-primary: #222222;
+  --color-text-secondary: #6a6a6a;
+  --color-text-disabled: rgba(0, 0, 0, 0.24);
+  --color-border: #c1c1c1;
+  --color-surface-secondary: #f2f2f2;
+  --color-status-ok: #008a05;
+  --color-status-degraded: #b45309;
+  --color-status-unavailable: #c13515;
+  --color-error: #c13515;
+
+  /* ── Typography ── */
+  --font-sans: 'Airbnb Cereal VF', Circular, -apple-system, system-ui, Roboto, 'Helvetica Neue',
+    sans-serif;
+  --text-xs: 0.69rem; /* 11px – badge */
+  --text-sm: 0.81rem; /* 13px – small */
+  --text-body: 0.88rem; /* 14px – body */
+  --text-base: 1rem; /* 16px – UI */
+  --text-lg: 1.25rem; /* 20px – feature title */
+  --text-xl: 1.38rem; /* 22px – card heading */
+  --text-2xl: 1.75rem; /* 28px – section heading */
+
+  /* ── Border Radius ── */
+  --radius-xs: 4px;
+  --radius-sm: 8px;
+  --radius-md: 14px;
+  --radius-lg: 20px;
+  --radius-xl: 32px;
+  --radius-full: 9999px;
+
+  /* ── Shadows ── */
+  --shadow-card: rgba(0, 0, 0, 0.02) 0px 0px 0px 1px, rgba(0, 0, 0, 0.04) 0px 2px 6px,
+    rgba(0, 0, 0, 0.1) 0px 4px 8px;
+  --shadow-hover: rgba(0, 0, 0, 0.08) 0px 4px 12px;
+
+  /* ── Spacing (8px base) ── */
+  --space-1: 8px;
+  --space-2: 16px;
+  --space-3: 24px;
+  --space-4: 32px;
+}

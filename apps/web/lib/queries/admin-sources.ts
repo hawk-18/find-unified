@@ -1,0 +1,84 @@
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
+import { apiFetch } from '@/lib/api-client'
+
+export interface SourceConfigRaw {
+  id: string
+  sourceType: string
+  enabled: boolean
+  updatedAt: string
+  config: Record<string, unknown>
+}
+
+export function useMcpConfig() {
+  return useQuery<SourceConfigRaw>({
+    queryKey: ['admin', 'sources', 'mcp'],
+    queryFn: () => apiFetch('/api/admin/sources/mcp') as Promise<SourceConfigRaw>,
+  })
+}
+
+export function useSqliteConfig() {
+  return useQuery<SourceConfigRaw>({
+    queryKey: ['admin', 'sources', 'sqlite'],
+    queryFn: () => apiFetch('/api/admin/sources/sqlite') as Promise<SourceConfigRaw>,
+  })
+}
+
+export interface McpUpdateBody {
+  endpoint: string
+  timeout_ms: number
+  enabled: boolean
+}
+
+export function useUpdateMcp() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (body: McpUpdateBody) =>
+      apiFetch('/api/admin/sources/mcp', {
+        method: 'PUT',
+        body: JSON.stringify(body),
+      }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['admin', 'sources', 'mcp'] }),
+  })
+}
+
+export interface SqliteUpdateBody {
+  url: string
+  enabled: boolean
+}
+
+export function useUpdateSqlite() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (body: SqliteUpdateBody) =>
+      apiFetch('/api/admin/sources/sqlite', {
+        method: 'PUT',
+        body: JSON.stringify(body),
+      }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['admin', 'sources', 'sqlite'] }),
+  })
+}
+
+// ── Local roots ───────────────────────────────────────────────────────────────
+
+export interface LocalConfig {
+  roots: string[]
+}
+
+export function useLocalConfig() {
+  return useQuery<LocalConfig>({
+    queryKey: ['admin', 'sync', 'local-config'],
+    queryFn: () => apiFetch('/api/admin/sync/local/config') as Promise<LocalConfig>,
+  })
+}
+
+export function useUpdateLocalConfig() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (body: LocalConfig) =>
+      apiFetch('/api/admin/sync/local/config', {
+        method: 'PUT',
+        body: JSON.stringify(body),
+      }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['admin', 'sync', 'local-config'] }),
+  })
+}

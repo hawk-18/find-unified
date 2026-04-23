@@ -1,0 +1,20 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+body {
+  background: var(--color-bg, #ffffff);
+  color: var(--color-text-primary, #222222);
+  font-family: var(--font-sans, -apple-system, system-ui, sans-serif);
+}
+
+html,
+body {
+  height: 100%;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
