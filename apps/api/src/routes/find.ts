@@ -10,7 +10,7 @@ import { authenticate } from '../plugins/auth.js'
 const anthropic = new Anthropic({
   ...(process.env.ANTHROPIC_AUTH_TOKEN
     ? { authToken: process.env.ANTHROPIC_AUTH_TOKEN }
-    : { apiKey: process.env.ANTHROPIC_API_KEY }),
+    : {}),
   baseURL: process.env.ANTHROPIC_BASE_URL,
 })
 
