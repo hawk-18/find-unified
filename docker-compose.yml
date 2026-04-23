@@ -10,6 +10,7 @@ services:
     volumes:
       - docs_data:/data/docs
       - config_data:/data/config
+      - db_data:/data/db
     ports:
       - "8787:8787"
 

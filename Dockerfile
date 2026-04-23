@@ -53,11 +53,17 @@ RUN pnpm install --frozen-lockfile --filter @find-unified/api... --prod
 COPY --from=builder /app/apps/api/dist              ./apps/api/dist
 COPY --from=builder /app/apps/api/node_modules/.prisma ./apps/api/node_modules/.prisma
 COPY apps/api/prisma ./apps/api/prisma
+# 默认 sources.json（config volume 为空时使用）
+COPY services/find-core/config/sources.json /app/default-sources.json
 # skills 目录挂载到容器，这里建好空目录
-RUN mkdir -p /data/docs /data/db /app/apps/api/skills
+RUN mkdir -p /data/docs /data/db /data/config /app/apps/api/skills
 WORKDIR /app/apps/api
 EXPOSE 3001
-CMD ["sh", "-c", "npx prisma migrate deploy && node dist/index.js"]
+# 启动时：若 config volume 中无 sources.json 则写入默认值，再执行迁移和启动
+CMD ["sh", "-c", "\
+  [ ! -f /data/config/sources.json ] && cp /app/default-sources.json /data/config/sources.json; \
+  npx prisma migrate deploy && node dist/index.js \
+"]
 
 # ── 运行目标：web ─────────────────────────────────────────────────────────────
 FROM node:22-alpine AS web
@@ -76,11 +82,16 @@ COPY package.json pnpm-lock.yaml pnpm-workspace.yaml .npmrc ./
 COPY services/find-core/package.json ./services/find-core/
 RUN pnpm install --frozen-lockfile --filter @find-unified/find-core... --prod
 COPY --from=builder /app/services/find-core/dist ./services/find-core/dist
-COPY services/find-core/config                   ./services/find-core/config
-RUN mkdir -p /data/docs
+# 默认配置内嵌镜像，volume 为空时复制到挂载路径
+COPY services/find-core/config/sources.json /app/default-sources.json
+RUN mkdir -p /data/docs /data/config
 WORKDIR /app/services/find-core
 EXPOSE 8787
-CMD ["node", "dist/index.js"]
+# 启动时：若 config volume 中无 sources.json 则写入默认值
+CMD ["sh", "-c", "\
+  [ ! -f /data/config/sources.json ] && cp /app/default-sources.json /data/config/sources.json; \
+  node dist/index.js \
+"]
 
 # ── 运行目标：mcp-mock ────────────────────────────────────────────────────────
 FROM base AS mcp-mock
