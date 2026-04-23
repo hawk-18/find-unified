@@ -1,0 +1,4 @@
+
+> @find-unified/find-core@0.1.0 lint /Users/cc/find-unified/services/find-core
+> eslint src
+

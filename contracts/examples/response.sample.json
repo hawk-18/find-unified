@@ -1,0 +1,38 @@
+{
+  "answer": "可通过 RBAC 配置角色与权限映射，并在网关层校验 token scope。",
+  "highlights": [
+    "本地知识库中权限模型章节明确要求角色最小化",
+    "数据库配置表提供 role_scope 映射"
+  ],
+  "evidence": [
+    {
+      "id": "local-1",
+      "source_type": "local",
+      "title": "权限模型",
+      "snippet": "建议采用 RBAC 并按服务拆分 role_scope。",
+      "score": 8.9,
+      "source_ref": "/Users/cc/docs/auth/rbac.md"
+    }
+  ],
+  "source_status": [
+    {
+      "source": "local",
+      "status": "ok",
+      "message": "检索成功",
+      "latency_ms": 42
+    },
+    {
+      "source": "mcp",
+      "status": "degraded",
+      "message": "未配置 endpoint",
+      "latency_ms": 0
+    },
+    {
+      "source": "db",
+      "status": "degraded",
+      "message": "未配置 endpoint",
+      "latency_ms": 0
+    }
+  ],
+  "trace_id": "sample-trace"
+}

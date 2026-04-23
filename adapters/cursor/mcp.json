@@ -1,0 +1,10 @@
+{
+  "mcpServers": {
+    "find-core": {
+      "command": "node",
+      "args": [
+        "/Users/cc/find-unified/services/find-core/src/mcp-server.js"
+      ]
+    }
+  }
+}

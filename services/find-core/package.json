@@ -1,0 +1,27 @@
+{
+  "name": "@find-unified/find-core",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "sh -c 'set -a; . ../../.env; set +a; tsx watch src/index.ts'",
+    "build": "tsc",
+    "test": "vitest run --passWithNoTests",
+    "start": "sh -c 'set -a; . ../../.env; set +a; node dist/index.js'",
+    "lint": "eslint src"
+  },
+  "dependencies": {
+    "@fastify/cors": "^11.0.0",
+    "@modelcontextprotocol/sdk": "^1.29.0",
+    "fastify": "^5.0.0",
+    "pg": "^8.20.0",
+    "pino": "^9.0.0",
+    "zod": "^3.23.0"
+  },
+  "devDependencies": {
+    "@types/pg": "^8.20.0",
+    "tsx": "^4.19.0",
+    "typescript": "^5.6.0",
+    "vitest": "^2.0.0"
+  }
+}

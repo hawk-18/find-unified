@@ -1,0 +1,118 @@
+generator client {
+  provider        = "prisma-client-js"
+  previewFeatures = ["fullTextSearch"]
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id            String         @id @default(uuid())
+  name          String
+  role          String
+  defaultCli    String         @default("claude_code")
+  createdAt     DateTime       @default(now())
+  conversations Conversation[]
+
+  @@map("users")
+}
+
+model Conversation {
+  id          String    @id @default(uuid())
+  ownerUserId String
+  title       String
+  deletedAt   DateTime?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  owner       User      @relation(fields: [ownerUserId], references: [id])
+  messages    Message[]
+
+  @@map("conversations")
+}
+
+model Message {
+  id             String            @id @default(uuid())
+  conversationId String
+  role           String
+  content        String
+  traceId        String?
+  createdAt      DateTime          @default(now())
+  conversation   Conversation      @relation(fields: [conversationId], references: [id])
+  evidence       MessageEvidence[]
+
+  @@map("messages")
+}
+
+model MessageEvidence {
+  id         String  @id @default(uuid())
+  messageId  String
+  sourceType String
+  title      String
+  snippet    String
+  score      Float
+  sourceRef  String
+  message    Message @relation(fields: [messageId], references: [id])
+
+  @@map("message_evidence")
+}
+
+model SourceConfig {
+  id         String   @id @default(uuid())
+  sourceType String   @unique
+  enabled    Boolean  @default(true)
+  configJson String
+  updatedBy  String
+  updatedAt  DateTime @updatedAt
+
+  @@map("source_configs")
+}
+
+model Skill {
+  id         String  @id @default(uuid())
+  name       String  @unique
+  stage      String
+  enabled    Boolean @default(true)
+  priority   Int     @default(0)
+  configJson String  @default("{}")
+
+  @@map("skills")
+}
+
+model SyncJob {
+  id          String    @id @default(uuid())
+  jobType     String
+  status      String    @default("pending")
+  payloadJson String
+  resultJson  String?
+  createdAt   DateTime  @default(now())
+  finishedAt  DateTime?
+
+  @@map("sync_jobs")
+}
+
+model AuditLog {
+  id              String   @id @default(uuid())
+  operatorUserId  String
+  action          String
+  targetType      String
+  targetId        String
+  detailJson      String
+  createdAt       DateTime @default(now())
+
+  @@map("audit_logs")
+}
+
+model KnowledgeArticle {
+  id        String   @id @default(uuid())
+  title     String
+  content   String
+  category  String
+  tags      String
+  author    String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("knowledge_articles")
+}

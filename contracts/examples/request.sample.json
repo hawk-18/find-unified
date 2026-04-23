@@ -1,0 +1,16 @@
+{
+  "query": "如何配置用户权限",
+  "top_k": 5,
+  "sources": [
+    "local",
+    "mcp",
+    "db"
+  ],
+  "filters": {
+    "product": "auth-service"
+  },
+  "user_context": {
+    "platform": "claude-code",
+    "workspace": "/Users/cc"
+  }
+}

@@ -1,0 +1,11 @@
+{
+  "tools": [
+    {
+      "name": "find_search",
+      "type": "http",
+      "method": "POST",
+      "url": "http://127.0.0.1:8787/find/search",
+      "timeout_ms": 8000
+    }
+  ]
+}

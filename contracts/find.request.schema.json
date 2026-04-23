@@ -1,0 +1,43 @@
+{
+  "$id": "find.request.schema.json",
+  "type": "object",
+  "required": [
+    "query"
+  ],
+  "properties": {
+    "query": {
+      "type": "string",
+      "minLength": 1
+    },
+    "top_k": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 20,
+      "default": 5
+    },
+    "sources": {
+      "type": "array",
+      "items": {
+        "enum": [
+          "local",
+          "mcp",
+          "db"
+        ]
+      },
+      "default": [
+        "local",
+        "mcp",
+        "db"
+      ]
+    },
+    "filters": {
+      "type": "object",
+      "additionalProperties": true
+    },
+    "user_context": {
+      "type": "object",
+      "additionalProperties": true
+    }
+  },
+  "additionalProperties": false
+}

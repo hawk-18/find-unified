@@ -1,0 +1,97 @@
+{
+  "$id": "find.response.schema.json",
+  "type": "object",
+  "required": [
+    "answer",
+    "highlights",
+    "evidence",
+    "source_status"
+  ],
+  "properties": {
+    "answer": {
+      "type": "string"
+    },
+    "highlights": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "evidence": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "id",
+          "source_type",
+          "title",
+          "snippet",
+          "score",
+          "source_ref"
+        ],
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "source_type": {
+            "enum": [
+              "local",
+              "mcp",
+              "db"
+            ]
+          },
+          "title": {
+            "type": "string"
+          },
+          "snippet": {
+            "type": "string"
+          },
+          "score": {
+            "type": "number"
+          },
+          "updated_at": {
+            "type": "string"
+          },
+          "source_ref": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "source_status": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "source",
+          "status"
+        ],
+        "properties": {
+          "source": {
+            "enum": [
+              "local",
+              "mcp",
+              "db"
+            ]
+          },
+          "status": {
+            "enum": [
+              "ok",
+              "degraded",
+              "unavailable"
+            ]
+          },
+          "message": {
+            "type": "string"
+          },
+          "latency_ms": {
+            "type": "integer"
+          }
+        }
+      }
+    },
+    "trace_id": {
+      "type": "string"
+    }
+  }
+}
