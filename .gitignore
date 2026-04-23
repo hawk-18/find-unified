@@ -6,3 +6,4 @@ dist/
 .DS_Store
 .claude/
 *.rdb
+services/find-core/config/sources.local.json
