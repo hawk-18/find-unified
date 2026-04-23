@@ -1,0 +1,87 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: find_unified
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: "1234"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  find-core:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: find-core
+    environment:
+      FIND_CORE_PORT: "8787"
+    ports:
+      - "8787:8787"
+
+  mcp-mock:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: mcp-mock
+    environment:
+      MCP_PORT: "9090"
+    ports:
+      - "9090:9090"
+
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: api
+    environment:
+      NODE_ENV: production
+      API_PORT: "3001"
+      DATABASE_URL: postgresql://postgres:1234@postgres:5432/find_unified
+      REDIS_HOST: redis
+      REDIS_PORT: "6379"
+      FIND_CORE_URL: http://find-core:8787
+      ANTHROPIC_AUTH_TOKEN: ${ANTHROPIC_AUTH_TOKEN}
+      ANTHROPIC_BASE_URL: ${ANTHROPIC_BASE_URL}
+      ENCRYPTION_KEY: ${ENCRYPTION_KEY}
+    ports:
+      - "3001:3001"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      find-core:
+        condition: service_started
+      mcp-mock:
+        condition: service_started
+
+  web:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: web
+      args:
+        NEXT_PUBLIC_API_URL: http://localhost:3001
+    environment:
+      PORT: "3000"
+      NEXT_PUBLIC_API_URL: http://localhost:3001
+    ports:
+      - "3000:3000"
+    depends_on:
+      - api
+
+volumes:
+  postgres_data:

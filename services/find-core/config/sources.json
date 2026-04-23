@@ -3,10 +3,9 @@
     "enabled": true,
     "roots": [
       "/tmp/find-sync/http",
-      "/tmp/find-sync/git/github.com_anthropics_anthropic-cookbook",
-      "/tmp/find-sync/git/github.com_microsoft_vscode-docs",
-      "/tmp/find-sync/git/file____tmp_find-test-repo_remote",
-      "/Users/cc/find-unified/apps/api/cvte.md"
+      "/Users/cc/find-unified/apps/api/cvte.md",
+      "/Users/cc/DESIGN.md",
+      "/Users/cc/find-unified/README.md"
     ],
     "include_globs": [
       "knowledge/**/*.md",

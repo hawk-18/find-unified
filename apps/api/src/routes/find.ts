@@ -24,6 +24,7 @@ interface SkillMeta {
   stage: string
   enabled: boolean
   body: string
+  script: string  // JS script content, empty if none
 }
 
 function parseSkillFile(content: string): SkillMeta | null {
@@ -40,56 +41,96 @@ function parseSkillFile(content: string): SkillMeta | null {
     else if (key === 'enabled') meta.enabled = val === 'true'
   }
   meta.body = match[2]?.trim() ?? ''
+  meta.script = ''
   if (!meta.name) return null
   return meta as SkillMeta
 }
 
-async function buildSystemPrompt(): Promise<string> {
+async function loadEnabledSkills(): Promise<SkillMeta[]> {
   let files: string[]
   try {
     files = await fs.readdir(SKILLS_DIR)
   } catch {
-    return ''
+    return []
   }
-
   const skills: SkillMeta[] = []
   for (const f of files.filter((f) => f.endsWith('.md'))) {
     try {
       const content = await fs.readFile(path.join(SKILLS_DIR, f), 'utf-8')
       const skill = parseSkillFile(content)
-      if (skill && skill.enabled && skill.body) skills.push(skill)
+      if (!skill || !skill.enabled) continue
+      // load optional script
+      try {
+        skill.script = await fs.readFile(
+          path.join(SKILLS_DIR, f.replace(/\.md$/, '.script.js')),
+          'utf-8'
+        )
+      } catch { /* no script */ }
+      skills.push(skill)
     } catch { /* skip */ }
   }
+  return skills
+}
 
+async function buildSystemPrompt(): Promise<string> {
+  const skills = await loadEnabledSkills()
   if (skills.length === 0) return ''
-
   const sections: string[] = []
   for (const stage of STAGE_ORDER) {
-    const group = skills.filter((s) => s.stage === stage)
-    for (const s of group) {
+    for (const s of skills.filter((s) => s.stage === stage && s.body)) {
       const stageLabel = stage === 'pre_search' ? '检索前' : stage === 'post_search' ? '检索后' : '回答后'
       sections.push(`## [${stageLabel}] ${s.name}\n${s.body}`)
     }
   }
-
   return sections.join('\n\n')
 }
 
 async function getEnabledSkillNames(): Promise<string[]> {
+  const skills = await loadEnabledSkills()
+  return skills.map((s) => s.name)
+}
+
+// ── Skill script runner ───────────────────────────────────────────────────────
+
+interface ScriptContext {
+  query: string
+  evidence: Array<{ title: string; snippet: string; score: number; source_ref: string; source_type?: string }>
+  answer: string
+}
+
+/**
+ * Run a skill script in a sandboxed Function scope.
+ * The script receives { query, evidence, answer } and should return a (partial) object
+ * with any fields it wants to modify.
+ */
+function runSkillScript(scriptCode: string, ctx: ScriptContext, log: (msg: string) => void): Partial<ScriptContext> {
   try {
-    const files = await fs.readdir(SKILLS_DIR)
-    const names: string[] = []
-    for (const f of files.filter((f) => f.endsWith('.md'))) {
-      try {
-        const content = await fs.readFile(path.join(SKILLS_DIR, f), 'utf-8')
-        const skill = parseSkillFile(content)
-        if (skill && skill.enabled && skill.body) names.push(skill.name)
-      } catch { /* skip */ }
-    }
-    return names
-  } catch {
-    return []
+    // eslint-disable-next-line @typescript-eslint/no-implied-eval
+    const fn = new Function('query', 'evidence', 'answer', 'log', `
+      "use strict";
+      ${scriptCode}
+    `)
+    const result = fn(ctx.query, ctx.evidence, ctx.answer, log)
+    if (result && typeof result === 'object') return result as Partial<ScriptContext>
+    return {}
+  } catch (err) {
+    log(`[skill script error] ${String(err)}`)
+    return {}
   }
+}
+
+async function runStageScripts(
+  stage: typeof STAGE_ORDER[number],
+  ctx: ScriptContext,
+  log: (msg: string) => void
+): Promise<ScriptContext> {
+  const skills = await loadEnabledSkills()
+  let current = { ...ctx }
+  for (const skill of skills.filter((s) => s.stage === stage && s.script)) {
+    const patch = runSkillScript(skill.script, current, log)
+    current = { ...current, ...patch }
+  }
+  return current
 }
 
 function appendSkillFooter(answer: string, skillNames: string[]): string {
@@ -458,9 +499,17 @@ export async function findRoutes(app: FastifyInstance) {
           body: JSON.stringify({ ...body, top_k: internalTopK }),
         })
         const data = await coreRes.json() as Record<string, unknown>
-        const evidence = ((data.evidence as Array<{ title: string; snippet: string; source_ref: string }>) ?? []).slice(0, body.top_k ?? 5)
+        let evidence = ((data.evidence as Array<{ title: string; snippet: string; source_ref: string; source_type?: string; score: number }>) ?? []).slice(0, body.top_k ?? 5)
         const systemPrompt = await buildSystemPrompt()
-        const skillNames = systemPrompt ? await getEnabledSkillNames() : []
+        const skillNames = await getEnabledSkillNames()
+
+        // ── post_search scripts: may reorder/filter evidence ─────────────────
+        const postSearchCtx = await runStageScripts('post_search', {
+          query: body.query,
+          evidence,
+          answer: '',
+        }, (msg) => request.log.info(msg))
+        evidence = postSearchCtx.evidence
 
         // Build context from evidence
         const evidenceText = evidence.length
@@ -501,8 +550,8 @@ ${body.query}`,
               sendEvent('chunk', JSON.stringify({ text: event.delta.text }))
             }
           }
-        } catch {
-          // LLM unavailable — build fallback answer incorporating history if relevant
+        } catch (llmErr) {
+          request.log.error({ err: String(llmErr) }, 'LLM stream failed, using fallback')
           const historyContext = history.length
             ? `\n\n**对话历史参考：**\n${historyToText(history)}`
             : ''
@@ -510,6 +559,18 @@ ${body.query}`,
             ? `已检索到 ${evidence.length} 条相关知识片段，请参考以下内容：\n\n${evidence.map((e, i) => `[${i + 1}] **${e.title}**\n${e.snippet}`).join('\n\n')}${historyContext}`
             : `未检索到与"${body.query}"相关的内容。${historyContext}`
           sendEvent('chunk', JSON.stringify({ text: fullAnswer }))
+        }
+
+        // ── post_answer scripts: may transform final answer ───────────────────
+        const postAnswerCtx = await runStageScripts('post_answer', {
+          query: body.query,
+          evidence,
+          answer: fullAnswer,
+        }, (msg) => request.log.info(msg))
+        if (postAnswerCtx.answer && postAnswerCtx.answer !== fullAnswer) {
+          const diff = postAnswerCtx.answer.slice(fullAnswer.length)
+          if (diff) sendEvent('chunk', JSON.stringify({ text: diff }))
+          fullAnswer = postAnswerCtx.answer
         }
 
         const result = {
