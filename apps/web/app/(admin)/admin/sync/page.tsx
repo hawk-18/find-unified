@@ -226,16 +226,19 @@ function FileEditor({
   const { data, isLoading } = useFileContent(filename)
   const updateContent = useUpdateFileContent()
   const [edited, setEdited] = useState<string | null>(null)
+  const [editedFilename, setEditedFilename] = useState(filename)
 
   const content = edited ?? data?.content ?? ''
-  const isDirty = edited !== null && edited !== data?.content
+  const isDirty = (edited !== null && edited !== data?.content) || editedFilename !== filename
 
   const handleSave = async () => {
-    if (edited === null) return
+    const contentToSave = edited ?? data?.content ?? ''
+    const newFilename = editedFilename !== filename ? editedFilename : undefined
     try {
-      await updateContent.mutateAsync({ filename, content: edited })
+      await updateContent.mutateAsync({ filename, content: contentToSave, newFilename })
       setEdited(null)
       onToast({ message: '已保存', type: 'success' })
+      if (newFilename) onClose()
     } catch {
       onToast({ message: '保存失败', type: 'error' })
     }
@@ -255,8 +258,8 @@ function FileEditor({
           background: 'var(--color-bg)',
           borderRadius: 'var(--radius-sm)',
           border: '1px solid var(--color-border)',
-          width: '80vw', maxWidth: 900,
-          maxHeight: '85vh',
+          width: '95vw', maxWidth: 1200,
+          height: '90vh',
           display: 'flex', flexDirection: 'column',
           overflow: 'hidden',
         }}
@@ -269,9 +272,21 @@ function FileEditor({
             display: 'flex', alignItems: 'center', gap: 12,
           }}
         >
-          <span style={{ flex: 1, fontFamily: 'monospace', fontSize: 'var(--text-sm)', color: 'var(--color-text-primary)' }}>
-            {filename}
-          </span>
+          <input
+            value={editedFilename}
+            onChange={(e) => setEditedFilename(e.target.value)}
+            style={{
+              flex: 1,
+              fontFamily: 'monospace',
+              fontSize: 'var(--text-sm)',
+              color: 'var(--color-text-primary)',
+              background: 'transparent',
+              border: 'none',
+              borderBottom: '1px solid var(--color-border)',
+              outline: 'none',
+              padding: '2px 4px',
+            }}
+          />
           <button
             onClick={handleSave}
             disabled={!isDirty || updateContent.isPending}

@@ -163,10 +163,26 @@ export async function ingestRoutes(app: FastifyInstance) {
       if (!resolved.startsWith(path.resolve(SYNC_HTTP_DIR))) {
         return reply.status(400).send({ error: 'Invalid path' })
       }
-      const body = request.body as { content?: unknown }
+      const body = request.body as { content?: unknown; newFilename?: unknown }
       if (typeof body?.content !== 'string') {
         return reply.status(400).send({ error: 'content must be a string' })
       }
+
+      // Optional rename
+      if (body.newFilename !== undefined) {
+        if (typeof body.newFilename !== 'string' || !body.newFilename.trim()) {
+          return reply.status(400).send({ error: 'newFilename must be a non-empty string' })
+        }
+        const newResolved = path.resolve(path.join(SYNC_HTTP_DIR, body.newFilename))
+        if (!newResolved.startsWith(path.resolve(SYNC_HTTP_DIR))) {
+          return reply.status(400).send({ error: 'Invalid newFilename path' })
+        }
+        await fs.mkdir(path.dirname(newResolved), { recursive: true })
+        await fs.writeFile(newResolved, body.content, 'utf-8')
+        try { await fs.unlink(resolved) } catch { /* old file may not exist */ }
+        return reply.send({ ok: true, filename: body.newFilename })
+      }
+
       try {
         await fs.writeFile(resolved, body.content, 'utf-8')
       } catch {

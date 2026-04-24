@@ -57,12 +57,13 @@ export function useFileContent(filename: string | null) {
 export function useUpdateFileContent() {
   const qc = useQueryClient()
   return useMutation({
-    mutationFn: ({ filename, content }: { filename: string; content: string }) =>
+    mutationFn: ({ filename, content, newFilename }: { filename: string; content: string; newFilename?: string }) =>
       apiFetch(`/api/ingest/http/content/${filename}`, {
         method: 'PUT',
-        body: JSON.stringify({ content }),
-      }),
+        body: JSON.stringify({ content, ...(newFilename ? { newFilename } : {}) }),
+      }) as Promise<{ ok: boolean; filename?: string }>,
     onSuccess: (_data, { filename }) => {
+      qc.invalidateQueries({ queryKey: ['admin', 'ingest', 'files'] })
       qc.invalidateQueries({ queryKey: ['admin', 'ingest', 'content', filename] })
     },
   })
