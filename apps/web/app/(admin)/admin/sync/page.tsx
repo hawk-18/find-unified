@@ -518,7 +518,6 @@ function TreeNodeRow({ node, depth, onEdit, onDeleteFile, onDeleteDir, onToast }
         ) : (
           <>
             <span style={{ width: 24, flexShrink: 0 }} />
-            <span style={{ flexShrink: 0, marginRight: 7 }}>{Icon.file(ext)}</span>
             {renaming ? (
               <input ref={renameRef} className="sr-rename" value={renameVal} autoFocus
                 onChange={(e) => setRenameVal(e.target.value)}
