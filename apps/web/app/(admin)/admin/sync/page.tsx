@@ -15,97 +15,123 @@ import {
 import { apiFetch } from '@/lib/api-client'
 import { Toast, type ToastItem } from '@/components/Toast'
 
+// ── Global styles ─────────────────────────────────────────────────────────────
+const GLOBAL_STYLES = `
+  .sync-tree-row:hover { background: var(--color-surface-secondary); }
+  .sync-tree-row:hover .sync-row-actions { opacity: 1; }
+  .sync-row-actions { opacity: 0; transition: opacity 0.1s; }
+  .sync-job-row:hover { background: var(--color-surface-secondary); }
+  .sync-btn { transition: background 0.12s, border-color 0.12s, color 0.12s; }
+  .sync-btn:hover:not(:disabled) { background: var(--color-surface-secondary) !important; }
+  .sync-btn-danger:hover:not(:disabled) { background: #fef2f2 !important; }
+  .sync-btn-primary:hover:not(:disabled) { filter: brightness(0.92); }
+  .sync-upload-zone:hover { border-color: var(--color-brand) !important; background: var(--color-surface-secondary) !important; }
+  .sync-input:focus { border-color: var(--color-brand) !important; box-shadow: 0 0 0 2px color-mix(in srgb, var(--color-brand) 15%, transparent); }
+`
+
 // ── Status badge ──────────────────────────────────────────────────────────────
-const STATUS_COLOR: Record<string, string> = {
-  pending: 'var(--color-text-secondary)',
-  running: '#2563eb',
-  done: 'var(--color-status-ok)',
-  failed: 'var(--color-error)',
-}
-const STATUS_BG: Record<string, string> = {
-  pending: '#f2f2f2',
-  running: '#eff6ff',
-  done: '#f0fdf4',
-  failed: '#fef2f2',
-}
-const STATUS_LABEL: Record<string, string> = {
-  pending: '等待中',
-  running: '运行中',
-  done: '完成',
-  failed: '失败',
+const STATUS: Record<string, { color: string; bg: string; label: string; dot: string }> = {
+  pending: { color: '#92400e', bg: '#fef3c7', label: '等待中', dot: '#f59e0b' },
+  running: { color: '#1d4ed8', bg: '#eff6ff', label: '运行中', dot: '#3b82f6' },
+  done:    { color: '#166534', bg: '#f0fdf4', label: '完成',   dot: '#22c55e' },
+  failed:  { color: '#991b1b', bg: '#fef2f2', label: '失败',   dot: '#ef4444' },
 }
 
 function StatusBadge({ status }: { status: string }) {
+  const s = STATUS[status] ?? { color: 'var(--color-text-secondary)', bg: '#f2f2f2', label: status, dot: '#aaa' }
   return (
-    <span
-      style={{
-        display: 'inline-block',
-        padding: '2px 8px',
-        borderRadius: 'var(--radius-full)',
-        fontSize: 'var(--text-xs)',
-        fontWeight: 600,
-        color: STATUS_COLOR[status] ?? 'var(--color-text-secondary)',
-        background: STATUS_BG[status] ?? '#f2f2f2',
-      }}
-    >
-      {STATUS_LABEL[status] ?? status}
+    <span style={{
+      display: 'inline-flex', alignItems: 'center', gap: 5,
+      padding: '2px 8px', borderRadius: 'var(--radius-full)',
+      fontSize: 'var(--text-xs)', fontWeight: 600,
+      color: s.color, background: s.bg,
+    }}>
+      <span style={{ width: 6, height: 6, borderRadius: '50%', background: s.dot, flexShrink: 0 }} />
+      {s.label}
     </span>
   )
 }
+
+// ── Section header ────────────────────────────────────────────────────────────
+function SectionHeader({ title, children }: { title: string; children?: React.ReactNode }) {
+  return (
+    <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 12 }}>
+      <h2 style={{
+        fontSize: 'var(--text-sm)', fontWeight: 600,
+        color: 'var(--color-text-secondary)', margin: 0,
+        textTransform: 'uppercase', letterSpacing: '0.06em', flex: 1,
+      }}>
+        {title}
+      </h2>
+      {children}
+    </div>
+  )
+}
+
+// ── Shared button styles ──────────────────────────────────────────────────────
+const ghostBtn = (danger = false): React.CSSProperties => ({
+  padding: '3px 10px',
+  border: `1px solid ${danger ? 'var(--color-error)' : 'var(--color-border)'}`,
+  borderRadius: 'var(--radius-xs)',
+  background: 'transparent',
+  color: danger ? 'var(--color-error)' : 'var(--color-text-secondary)',
+  fontSize: 'var(--text-xs)', fontWeight: 500,
+  cursor: 'pointer', whiteSpace: 'nowrap' as const,
+})
 
 // ── Job row ───────────────────────────────────────────────────────────────────
 function JobRow({ job }: { job: SyncJob }) {
   const [expanded, setExpanded] = useState(false)
   const createdAt = new Date(job.createdAt).toLocaleString('zh-CN')
-  const finishedAt = job.finishedAt ? new Date(job.finishedAt).toLocaleString('zh-CN') : '—'
+  const finishedAt = job.finishedAt ? new Date(job.finishedAt).toLocaleString('zh-CN') : null
 
   let payload: { filename?: string } = {}
   try { payload = JSON.parse(job.payloadJson) } catch { /* noop */ }
 
   return (
-    <div style={{ borderBottom: '1px solid var(--color-border)', padding: '10px 0' }}>
+    <div className="sync-job-row" style={{
+      borderBottom: '1px solid var(--color-border)',
+      padding: '10px 16px',
+      transition: 'background 0.1s',
+    }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
-        <span
-          style={{
-            padding: '2px 8px',
-            borderRadius: 'var(--radius-full)',
-            fontSize: 'var(--text-xs)',
-            fontWeight: 600,
-            background: 'var(--color-surface-secondary)',
-            color: 'var(--color-text-secondary)',
-          }}
-        >
+        <span style={{
+          padding: '2px 8px', borderRadius: 'var(--radius-full)',
+          fontSize: 'var(--text-xs)', fontWeight: 600,
+          background: 'var(--color-surface-secondary)',
+          color: 'var(--color-text-secondary)',
+        }}>
           {job.jobType}
         </span>
 
         <StatusBadge status={job.status} />
 
         {payload.filename && (
-          <span style={{ fontSize: 'var(--text-sm)', color: 'var(--color-text-primary)', fontFamily: 'monospace' }}>
+          <span style={{
+            fontSize: 'var(--text-xs)', color: 'var(--color-text-primary)',
+            fontFamily: 'monospace',
+            background: 'var(--color-surface-secondary)',
+            padding: '1px 6px', borderRadius: 3,
+          }}>
             {payload.filename}
           </span>
         )}
 
-        <span style={{ fontSize: 'var(--text-sm)', color: 'var(--color-text-secondary)', flex: 1 }}>
+        <span style={{ fontSize: 'var(--text-xs)', color: 'var(--color-text-secondary)', flex: 1 }}>
           {createdAt}
         </span>
 
-        <span style={{ fontSize: 'var(--text-sm)', color: 'var(--color-text-secondary)' }}>
-          完成：{finishedAt}
-        </span>
+        {finishedAt && (
+          <span style={{ fontSize: 'var(--text-xs)', color: 'var(--color-text-disabled)' }}>
+            完成 {finishedAt}
+          </span>
+        )}
 
         {job.resultJson && (
           <button
+            className="sync-btn"
             onClick={() => setExpanded((v) => !v)}
-            style={{
-              padding: '2px 10px',
-              border: '1px solid var(--color-border)',
-              borderRadius: 'var(--radius-xs)',
-              background: 'transparent',
-              fontSize: 'var(--text-xs)',
-              color: 'var(--color-text-secondary)',
-              cursor: 'pointer',
-            }}
+            style={ghostBtn()}
           >
             {expanded ? '收起' : '详情'}
           </button>
@@ -113,19 +139,19 @@ function JobRow({ job }: { job: SyncJob }) {
       </div>
 
       {expanded && job.resultJson && (
-        <pre
-          style={{
-            marginTop: 8,
-            padding: '8px 10px',
-            background: 'var(--color-surface-secondary)',
-            borderRadius: 'var(--radius-xs)',
-            fontSize: 'var(--text-xs)',
-            color: 'var(--color-text-primary)',
-            overflowX: 'auto',
-            whiteSpace: 'pre-wrap',
-            wordBreak: 'break-all',
-          }}
-        >
+        <pre style={{
+          marginTop: 10,
+          padding: '10px 12px',
+          background: 'var(--color-surface-secondary)',
+          borderRadius: 'var(--radius-xs)',
+          fontSize: 12,
+          color: 'var(--color-text-primary)',
+          overflowX: 'auto',
+          whiteSpace: 'pre-wrap',
+          wordBreak: 'break-all',
+          lineHeight: 1.6,
+          border: '1px solid var(--color-border)',
+        }}>
           {job.resultJson}
         </pre>
       )}
@@ -156,24 +182,19 @@ function UploadPanel({ onToast }: { onToast: (item: Omit<ToastItem, 'id'>) => vo
 
   const handleFiles = async (files: FileList | null) => {
     if (!files || files.length === 0) return
-    let successCount = 0
-    let failCount = 0
+    let successCount = 0, failCount = 0
     for (const file of Array.from(files)) {
-      try {
-        await uploadMutation.mutateAsync(file)
-        successCount++
-      } catch {
-        failCount++
-      }
+      try { await uploadMutation.mutateAsync(file); successCount++ }
+      catch { failCount++ }
     }
     if (successCount > 0) onToast({ message: `上传成功 ${successCount} 个文件`, type: 'success' })
     if (failCount > 0) onToast({ message: `上传失败 ${failCount} 个文件`, type: 'error' })
   }
 
   return (
-    <div style={{ marginBottom: 24 }}>
-      {/* Drop zone */}
+    <div style={{ marginBottom: 32 }}>
       <div
+        className="sync-upload-zone"
         onDragOver={(e) => { e.preventDefault(); setDragging(true) }}
         onDragLeave={() => setDragging(false)}
         onDrop={(e) => { e.preventDefault(); setDragging(false); handleFiles(e.dataTransfer.files) }}
@@ -181,46 +202,53 @@ function UploadPanel({ onToast }: { onToast: (item: Omit<ToastItem, 'id'>) => vo
         style={{
           border: `2px dashed ${dragging ? 'var(--color-brand)' : 'var(--color-border)'}`,
           borderRadius: 'var(--radius-sm)',
-          padding: '32px 16px',
+          padding: '40px 24px',
           textAlign: 'center',
           cursor: 'pointer',
           background: dragging ? 'var(--color-surface-secondary)' : 'var(--color-bg)',
           transition: 'all 0.15s',
-          marginBottom: 12,
         }}
       >
-        <p style={{ margin: 0, color: 'var(--color-text-secondary)', fontSize: 'var(--text-body)' }}>
-          点击或拖拽上传 <strong>.md</strong> / <strong>.txt</strong> 文件
+        {/* Upload icon */}
+        <div style={{
+          width: 44, height: 44, borderRadius: '50%',
+          background: 'var(--color-surface-secondary)',
+          display: 'flex', alignItems: 'center', justifyContent: 'center',
+          margin: '0 auto 12px',
+          fontSize: 20,
+        }}>
+          ↑
+        </div>
+        <p style={{ margin: 0, color: 'var(--color-text-primary)', fontSize: 'var(--text-body)', fontWeight: 500 }}>
+          点击或拖拽文件到此处上传
         </p>
-        <p style={{ margin: '6px 0 0', color: 'var(--color-text-disabled)', fontSize: 'var(--text-sm)' }}>
-          支持多文件同时上传
+        <p style={{ margin: '6px 0 0', color: 'var(--color-text-secondary)', fontSize: 'var(--text-sm)' }}>
+          支持 <code style={{ fontFamily: 'monospace', background: 'var(--color-surface-secondary)', padding: '1px 5px', borderRadius: 3 }}>.md</code>
+          {' '}和{' '}
+          <code style={{ fontFamily: 'monospace', background: 'var(--color-surface-secondary)', padding: '1px 5px', borderRadius: 3 }}>.txt</code>
+          {' '}格式，可多文件同时上传
         </p>
       </div>
 
-      <input
-        ref={fileInputRef}
-        type="file"
-        accept=".md,.txt"
-        multiple
-        style={{ display: 'none' }}
-        onChange={(e) => handleFiles(e.target.files)}
-      />
+      <input ref={fileInputRef} type="file" accept=".md,.txt" multiple style={{ display: 'none' }} onChange={(e) => handleFiles(e.target.files)} />
 
       {uploadMutation.isPending && (
-        <p style={{ color: 'var(--color-text-secondary)', fontSize: 'var(--text-sm)', margin: '4px 0' }}>
+        <div style={{
+          marginTop: 10, padding: '8px 12px',
+          background: '#eff6ff', borderRadius: 'var(--radius-xs)',
+          fontSize: 'var(--text-sm)', color: '#1d4ed8',
+          display: 'flex', alignItems: 'center', gap: 8,
+        }}>
+          <span style={{ animation: 'spin 1s linear infinite', display: 'inline-block' }}>⟳</span>
           上传中…
-        </p>
+        </div>
       )}
     </div>
   )
 }
 
 // ── File editor modal ────────────────────────────────────────────────────────
-function FileEditor({
-  filename,
-  onClose,
-  onToast,
-}: {
+function FileEditor({ filename, onClose, onToast }: {
   filename: string
   onClose: () => void
   onToast: (item: Omit<ToastItem, 'id'>) => void
@@ -246,75 +274,93 @@ function FileEditor({
     }
   }
 
+  const ext = editedFilename.split('.').pop()?.toLowerCase()
+  const lang = ext === 'md' ? 'Markdown' : ext === 'txt' ? 'Text' : ext ?? ''
+
   return (
-    <div
-      style={{
-        position: 'fixed', inset: 0, zIndex: 50,
-        background: 'rgba(0,0,0,0.4)',
-        display: 'flex', alignItems: 'center', justifyContent: 'center',
-      }}
+    <div style={{
+      position: 'fixed', inset: 0, zIndex: 50,
+      background: 'rgba(0,0,0,0.5)',
+      display: 'flex', alignItems: 'center', justifyContent: 'center',
+      backdropFilter: 'blur(2px)',
+    }}
       onClick={(e) => { if (e.target === e.currentTarget) onClose() }}
     >
-      <div
-        style={{
-          background: 'var(--color-bg)',
-          borderRadius: 'var(--radius-sm)',
-          border: '1px solid var(--color-border)',
-          width: '95vw', maxWidth: 1200,
-          height: '90vh',
-          display: 'flex', flexDirection: 'column',
-          overflow: 'hidden',
-        }}
-      >
+      <div style={{
+        background: 'var(--color-bg)',
+        borderRadius: 10,
+        border: '1px solid var(--color-border)',
+        boxShadow: '0 24px 48px rgba(0,0,0,0.18)',
+        width: '95vw', maxWidth: 1200,
+        height: '90vh',
+        display: 'flex', flexDirection: 'column',
+        overflow: 'hidden',
+      }}>
         {/* Header */}
-        <div
-          style={{
-            padding: '12px 16px',
-            borderBottom: '1px solid var(--color-border)',
-            display: 'flex', alignItems: 'center', gap: 12,
-          }}
-        >
+        <div style={{
+          padding: '0 16px',
+          height: 52,
+          borderBottom: '1px solid var(--color-border)',
+          display: 'flex', alignItems: 'center', gap: 12,
+          background: 'var(--color-surface-secondary)',
+        }}>
+          {/* File icon */}
+          <span style={{ fontSize: 16, flexShrink: 0 }}>📄</span>
+
           <input
             value={editedFilename}
             onChange={(e) => setEditedFilename(e.target.value)}
             style={{
-              flex: 1,
-              fontFamily: 'monospace',
-              fontSize: 'var(--text-sm)',
+              flex: 1, fontFamily: 'monospace',
+              fontSize: 'var(--text-sm)', fontWeight: 500,
               color: 'var(--color-text-primary)',
-              background: 'transparent',
-              border: 'none',
-              borderBottom: '1px solid var(--color-border)',
-              outline: 'none',
-              padding: '2px 4px',
+              background: 'transparent', border: 'none', outline: 'none',
+              padding: '4px 6px', borderRadius: 4,
             }}
           />
+
+          {lang && (
+            <span style={{
+              fontSize: 11, color: 'var(--color-text-secondary)',
+              background: 'var(--color-bg)',
+              border: '1px solid var(--color-border)',
+              padding: '1px 7px', borderRadius: 3,
+              fontFamily: 'monospace', flexShrink: 0,
+            }}>
+              {lang}
+            </span>
+          )}
+
+          {isDirty && (
+            <span style={{ width: 7, height: 7, borderRadius: '50%', background: '#f59e0b', flexShrink: 0 }} title="有未保存的修改" />
+          )}
+
           <button
+            className="sync-btn sync-btn-primary"
             onClick={handleSave}
             disabled={!isDirty || updateContent.isPending}
             style={{
-              padding: '4px 14px',
+              padding: '5px 16px',
               borderRadius: 'var(--radius-xs)',
               border: 'none',
-              background: isDirty ? 'var(--color-brand)' : 'var(--color-surface-secondary)',
+              background: isDirty ? 'var(--color-brand)' : 'var(--color-border)',
               color: isDirty ? '#fff' : 'var(--color-text-disabled)',
-              fontSize: 'var(--text-sm)',
-              fontWeight: 600,
+              fontSize: 'var(--text-sm)', fontWeight: 600,
               cursor: isDirty ? 'pointer' : 'default',
+              flexShrink: 0,
             }}
           >
             {updateContent.isPending ? '保存中…' : '保存'}
           </button>
           <button
+            className="sync-btn"
             onClick={onClose}
             style={{
-              padding: '4px 10px',
-              borderRadius: 'var(--radius-xs)',
+              padding: '5px 12px', borderRadius: 'var(--radius-xs)',
               border: '1px solid var(--color-border)',
-              background: 'transparent',
-              fontSize: 'var(--text-sm)',
-              color: 'var(--color-text-secondary)',
-              cursor: 'pointer',
+              background: 'var(--color-bg)',
+              fontSize: 'var(--text-sm)', color: 'var(--color-text-secondary)',
+              cursor: 'pointer', flexShrink: 0,
             }}
           >
             关闭
@@ -322,28 +368,40 @@ function FileEditor({
         </div>
 
         {/* Body */}
-        <div style={{ flex: 1, overflow: 'hidden', display: 'flex' }}>
+        <div style={{ flex: 1, overflow: 'hidden', display: 'flex', position: 'relative' }}>
           {isLoading ? (
-            <p style={{ padding: 24, color: 'var(--color-text-secondary)' }}>加载中…</p>
+            <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--color-text-secondary)', fontSize: 'var(--text-sm)' }}>
+              加载中…
+            </div>
           ) : (
             <textarea
               value={content}
               onChange={(e) => setEdited(e.target.value)}
               style={{
-                flex: 1,
-                resize: 'none',
-                border: 'none',
-                outline: 'none',
-                padding: '16px',
-                fontFamily: 'monospace',
-                fontSize: 'var(--text-sm)',
-                lineHeight: 1.6,
+                flex: 1, resize: 'none', border: 'none', outline: 'none',
+                padding: '20px 24px',
+                fontFamily: 'monospace', fontSize: 14,
+                lineHeight: 1.7,
                 color: 'var(--color-text-primary)',
                 background: 'var(--color-bg)',
               }}
               spellCheck={false}
             />
           )}
+        </div>
+
+        {/* Footer status bar */}
+        <div style={{
+          height: 28, padding: '0 16px',
+          borderTop: '1px solid var(--color-border)',
+          background: 'var(--color-surface-secondary)',
+          display: 'flex', alignItems: 'center', gap: 16,
+          fontSize: 11, color: 'var(--color-text-secondary)',
+        }}>
+          <span>{editedFilename}</span>
+          <span style={{ marginLeft: 'auto' }}>
+            {content.split('\n').length} 行 · {content.length} 字符
+          </span>
         </div>
       </div>
     </div>
@@ -353,16 +411,14 @@ function FileEditor({
 // ── Tree helpers ──────────────────────────────────────────────────────────────
 interface TreeNode {
   name: string
-  path: string       // relative path from root
+  path: string
   isDir: boolean
   children: TreeNode[]
 }
 
 function buildTree(files: string[]): TreeNode[] {
   const root: TreeNode = { name: '', path: '', isDir: true, children: [] }
-
   for (const f of files) {
-    // normalize separators and skip .gitkeep
     const parts = f.replace(/\\/g, '/').split('/').filter(Boolean)
     if (parts[parts.length - 1] === '.gitkeep') continue
     let cur = root
@@ -379,8 +435,6 @@ function buildTree(files: string[]): TreeNode[] {
       cur = child
     }
   }
-
-  // Sort: dirs first, then files, alphabetically
   const sort = (nodes: TreeNode[]) => {
     nodes.sort((a, b) => {
       if (a.isDir !== b.isDir) return a.isDir ? -1 : 1
@@ -392,15 +446,47 @@ function buildTree(files: string[]): TreeNode[] {
   return root.children
 }
 
+// ── Inline name input ─────────────────────────────────────────────────────────
+function InlineNameInput({ type, indent, onConfirm, onCancel }: {
+  type: 'file' | 'dir'
+  indent: number
+  onConfirm: (name: string) => void
+  onCancel: () => void
+}) {
+  const [name, setName] = useState('')
+  return (
+    <div style={{
+      display: 'flex', alignItems: 'center', gap: 8,
+      padding: '6px 12px', paddingLeft: indent + 36,
+      borderBottom: '1px solid var(--color-border)',
+      background: 'color-mix(in srgb, var(--color-brand) 4%, var(--color-bg))',
+    }}>
+      <span style={{ fontSize: 13 }}>{type === 'dir' ? '📁' : '📄'}</span>
+      <input
+        className="sync-input"
+        autoFocus
+        value={name}
+        onChange={(e) => setName(e.target.value)}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter') { if (name.trim()) onConfirm(name.trim()) }
+          if (e.key === 'Escape') onCancel()
+        }}
+        placeholder={type === 'dir' ? '文件夹名称' : '文件名称（如 doc.md）'}
+        style={{
+          flex: 1, fontSize: 'var(--text-sm)', fontFamily: 'monospace',
+          border: '1px solid var(--color-border)', borderRadius: 'var(--radius-xs)',
+          padding: '3px 8px', outline: 'none', background: 'var(--color-bg)',
+          transition: 'border-color 0.15s, box-shadow 0.15s',
+        }}
+      />
+      <button className="sync-btn" onClick={() => { if (name.trim()) onConfirm(name.trim()) }} style={{ ...ghostBtn(), fontSize: 11 }}>确认</button>
+      <button className="sync-btn" onClick={onCancel} style={{ ...ghostBtn(), fontSize: 11 }}>取消</button>
+    </div>
+  )
+}
+
 // ── Tree node row ─────────────────────────────────────────────────────────────
-function TreeNodeRow({
-  node,
-  depth,
-  onEdit,
-  onDeleteFile,
-  onDeleteDir,
-  onToast,
-}: {
+function TreeNodeRow({ node, depth, onEdit, onDeleteFile, onDeleteDir, onToast }: {
   node: TreeNode
   depth: number
   onEdit: (path: string) => void
@@ -410,25 +496,19 @@ function TreeNodeRow({
 }) {
   const [open, setOpen] = useState(true)
   const [addingItem, setAddingItem] = useState<'file' | 'dir' | null>(null)
-  const [newName, setNewName] = useState('')
   const createDir = useCreateDir()
   const uploadMutation = useMutation({
     mutationFn: async ({ filename, content }: { filename: string; content: string }) =>
       apiFetch('/api/ingest/http/push', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ filename, content }),
       }),
-    onSuccess: () => {
-      useQueryClient().invalidateQueries({ queryKey: ['admin', 'ingest', 'files'] })
-    },
+    onSuccess: () => useQueryClient().invalidateQueries({ queryKey: ['admin', 'ingest', 'files'] }),
   })
 
-  const indent = depth * 20
+  const indent = depth * 18
 
-  const handleAddConfirm = async () => {
-    const trimmed = newName.trim()
-    if (!trimmed) return
+  const handleAddConfirm = async (trimmed: string) => {
     const fullPath = node.path ? `${node.path}/${trimmed}` : trimmed
     try {
       if (addingItem === 'dir') {
@@ -443,100 +523,73 @@ function TreeNodeRow({
       onToast({ message: '创建失败', type: 'error' })
     }
     setAddingItem(null)
-    setNewName('')
-  }
-
-  const btnStyle: React.CSSProperties = {
-    padding: '1px 8px',
-    border: '1px solid var(--color-border)',
-    borderRadius: 'var(--radius-xs)',
-    background: 'transparent',
-    color: 'var(--color-text-secondary)',
-    fontSize: 'var(--text-xs)',
-    cursor: 'pointer',
-    whiteSpace: 'nowrap',
   }
 
   return (
     <>
       <div
+        className="sync-tree-row"
         style={{
-          display: 'flex',
-          alignItems: 'center',
-          gap: 8,
-          padding: '7px 0',
-          paddingLeft: indent,
+          display: 'flex', alignItems: 'center', gap: 6,
+          padding: '7px 12px', paddingLeft: 12 + indent,
           borderBottom: '1px solid var(--color-border)',
+          transition: 'background 0.1s',
+          minHeight: 36,
         }}
       >
         {node.isDir ? (
           <>
             <span
               onClick={() => setOpen((v) => !v)}
-              style={{ cursor: 'pointer', fontSize: 'var(--text-sm)', userSelect: 'none', width: 16 }}
+              style={{
+                cursor: 'pointer', fontSize: 10, userSelect: 'none',
+                width: 16, textAlign: 'center',
+                color: 'var(--color-text-secondary)',
+                transition: 'transform 0.15s',
+                display: 'inline-block',
+                transform: open ? 'rotate(0deg)' : 'rotate(-90deg)',
+              }}
             >
-              {open ? '▾' : '▸'}
+              ▾
             </span>
-            <span style={{ fontSize: 'var(--text-sm)', fontWeight: 600, color: 'var(--color-text-primary)', flex: 1 }}>
-              📁 {node.name}
+            <span style={{ fontSize: 15, flexShrink: 0 }}>📁</span>
+            <span style={{
+              fontSize: 'var(--text-sm)', fontWeight: 600,
+              color: 'var(--color-text-primary)', flex: 1,
+            }}>
+              {node.name}
             </span>
-            <button style={btnStyle} onClick={() => { setAddingItem('dir'); setNewName('') }}>+ 文件夹</button>
-            <button style={btnStyle} onClick={() => { setAddingItem('file'); setNewName('') }}>+ 文件</button>
-            <button
-              onClick={() => onDeleteDir(node.path)}
-              style={{ ...btnStyle, border: '1px solid var(--color-error)', color: 'var(--color-error)' }}
-            >
-              删除
-            </button>
+            <div className="sync-row-actions" style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+              <button className="sync-btn" onClick={() => setAddingItem('dir')} style={ghostBtn()}>+ 文件夹</button>
+              <button className="sync-btn sync-btn-danger" onClick={() => onDeleteDir(node.path)} style={ghostBtn(true)}>删除</button>
+            </div>
           </>
         ) : (
           <>
-            <span style={{ width: 16 }} />
-            <span style={{ fontSize: 'var(--text-sm)', fontFamily: 'monospace', color: 'var(--color-text-primary)', flex: 1 }}>
-              📄 {node.name}
+            <span style={{ width: 16, flexShrink: 0 }} />
+            <span style={{ fontSize: 14, flexShrink: 0 }}>📄</span>
+            <span style={{
+              fontSize: 'var(--text-sm)', fontFamily: 'monospace',
+              color: 'var(--color-text-primary)', flex: 1,
+              overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+            }}>
+              {node.name}
             </span>
-            <button style={btnStyle} onClick={() => onEdit(node.path)}>预览 / 编辑</button>
-            <button
-              onClick={() => onDeleteFile(node.path)}
-              style={{ ...btnStyle, border: '1px solid var(--color-error)', color: 'var(--color-error)' }}
-            >
-              删除
-            </button>
+            <div className="sync-row-actions" style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+              <button className="sync-btn" onClick={() => onEdit(node.path)} style={ghostBtn()}>预览 / 编辑</button>
+              <button className="sync-btn sync-btn-danger" onClick={() => onDeleteFile(node.path)} style={ghostBtn(true)}>删除</button>
+            </div>
           </>
         )}
       </div>
 
-      {/* Inline new-item input */}
-      {node.isDir && addingItem && open && (
-        <div
-          style={{
-            display: 'flex', alignItems: 'center', gap: 8,
-            padding: '6px 0', paddingLeft: indent + 36,
-            borderBottom: '1px solid var(--color-border)',
-            background: 'var(--color-surface-secondary)',
-          }}
-        >
-          <span style={{ fontSize: 'var(--text-xs)', color: 'var(--color-text-secondary)' }}>
-            {addingItem === 'dir' ? '📁' : '📄'}
-          </span>
-          <input
-            autoFocus
-            value={newName}
-            onChange={(e) => setNewName(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter') handleAddConfirm()
-              if (e.key === 'Escape') { setAddingItem(null); setNewName('') }
-            }}
-            placeholder={addingItem === 'dir' ? '文件夹名称' : '文件名称（如 doc.md）'}
-            style={{
-              flex: 1, fontSize: 'var(--text-sm)', fontFamily: 'monospace',
-              border: '1px solid var(--color-border)', borderRadius: 'var(--radius-xs)',
-              padding: '2px 6px', outline: 'none', background: 'var(--color-bg)',
-            }}
-          />
-          <button style={btnStyle} onClick={handleAddConfirm}>确认</button>
-          <button style={btnStyle} onClick={() => { setAddingItem(null); setNewName('') }}>取消</button>
-        </div>
+      {node.isDir && open && addingItem && (
+        <InlineNameInput
+          type={addingItem}
+          indent={indent}
+          onConfirm={handleAddConfirm}
+          onCancel={() => setAddingItem(null)}
+        />
       )}
 
       {node.isDir && open && node.children.map((child) => (
@@ -562,40 +615,28 @@ function FilesList({ onToast }: { onToast: (item: Omit<ToastItem, 'id'>) => void
   const createDir = useCreateDir()
   const [editingFile, setEditingFile] = useState<string | null>(null)
   const [addingRoot, setAddingRoot] = useState<'file' | 'dir' | null>(null)
-  const [rootNewName, setRootNewName] = useState('')
   const qc = useQueryClient()
 
   const uploadMutation = useMutation({
     mutationFn: async ({ filename, content }: { filename: string; content: string }) =>
       apiFetch('/api/ingest/http/push', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ filename, content }),
       }),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['admin', 'ingest', 'files'] }),
   })
 
   const handleDeleteFile = async (filename: string) => {
-    try {
-      await deleteFile.mutateAsync(filename)
-      onToast({ message: `已删除 ${filename}`, type: 'success' })
-    } catch {
-      onToast({ message: '删除失败', type: 'error' })
-    }
+    try { await deleteFile.mutateAsync(filename); onToast({ message: `已删除 ${filename}`, type: 'success' }) }
+    catch { onToast({ message: '删除失败', type: 'error' }) }
   }
 
   const handleDeleteDir = async (dirname: string) => {
-    try {
-      await deleteDir.mutateAsync(dirname)
-      onToast({ message: `已删除文件夹 ${dirname}`, type: 'success' })
-    } catch {
-      onToast({ message: '删除失败', type: 'error' })
-    }
+    try { await deleteDir.mutateAsync(dirname); onToast({ message: `已删除文件夹 ${dirname}`, type: 'success' }) }
+    catch { onToast({ message: '删除失败', type: 'error' }) }
   }
 
-  const handleRootAddConfirm = async () => {
-    const trimmed = rootNewName.trim()
-    if (!trimmed) return
+  const handleRootAddConfirm = async (trimmed: string) => {
     try {
       if (addingRoot === 'dir') {
         await createDir.mutateAsync(trimmed)
@@ -605,120 +646,44 @@ function FilesList({ onToast }: { onToast: (item: Omit<ToastItem, 'id'>) => void
         onToast({ message: `已创建文件 ${trimmed}`, type: 'success' })
         setEditingFile(trimmed)
       }
-    } catch {
-      onToast({ message: '创建失败', type: 'error' })
-    }
+    } catch { onToast({ message: '创建失败', type: 'error' }) }
     setAddingRoot(null)
-    setRootNewName('')
   }
 
   const tree = buildTree(data?.files ?? [])
 
   return (
-    <div style={{ marginBottom: 32 }}>
-      <div style={{ display: 'flex', alignItems: 'center', marginBottom: 8, gap: 8 }}>
-        <h2
-          style={{
-            fontSize: 'var(--text-base)',
-            fontWeight: 600,
-            color: 'var(--color-text-secondary)',
-            margin: 0,
-            textTransform: 'uppercase',
-            letterSpacing: '0.04em',
-            flex: 1,
-          }}
-        >
-          已上传文件
-        </h2>
-        <button
-          onClick={() => { setAddingRoot('dir'); setRootNewName('') }}
-          style={{
-            padding: '3px 10px',
-            border: '1px solid var(--color-border)',
-            borderRadius: 'var(--radius-xs)',
-            background: 'transparent',
-            color: 'var(--color-text-secondary)',
-            fontSize: 'var(--text-xs)',
-            cursor: 'pointer',
-          }}
-        >
-          + 文件夹
-        </button>
-        <button
-          onClick={() => { setAddingRoot('file'); setRootNewName('') }}
-          style={{
-            padding: '3px 10px',
-            border: '1px solid var(--color-border)',
-            borderRadius: 'var(--radius-xs)',
-            background: 'transparent',
-            color: 'var(--color-text-secondary)',
-            fontSize: 'var(--text-xs)',
-            cursor: 'pointer',
-          }}
-        >
-          + 文件
-        </button>
-      </div>
+    <div style={{ marginBottom: 36 }}>
+      <SectionHeader title="已上传文件">
+        <button className="sync-btn" onClick={() => setAddingRoot('dir')} style={ghostBtn()}>+ 文件夹</button>
+        <button className="sync-btn" onClick={() => setAddingRoot('file')} style={ghostBtn()}>+ 文件</button>
+      </SectionHeader>
 
-      <div
-        style={{
-          border: '1px solid var(--color-border)',
-          borderRadius: 'var(--radius-sm)',
-          padding: '0 16px',
-          background: 'var(--color-bg)',
-        }}
-      >
+      <div style={{
+        border: '1px solid var(--color-border)',
+        borderRadius: 8,
+        overflow: 'hidden',
+        background: 'var(--color-bg)',
+      }}>
         {isLoading ? (
-          <p style={{ padding: '16px 0', color: 'var(--color-text-secondary)' }}>加载中…</p>
+          <div style={{ padding: '24px', textAlign: 'center', color: 'var(--color-text-secondary)', fontSize: 'var(--text-sm)' }}>
+            加载中…
+          </div>
         ) : (
           <>
-            {/* Root-level new item input */}
             {addingRoot && (
-              <div
-                style={{
-                  display: 'flex', alignItems: 'center', gap: 8,
-                  padding: '6px 0',
-                  borderBottom: '1px solid var(--color-border)',
-                  background: 'var(--color-surface-secondary)',
-                }}
-              >
-                <span style={{ fontSize: 'var(--text-xs)', color: 'var(--color-text-secondary)' }}>
-                  {addingRoot === 'dir' ? '📁' : '📄'}
-                </span>
-                <input
-                  autoFocus
-                  value={rootNewName}
-                  onChange={(e) => setRootNewName(e.target.value)}
-                  onKeyDown={(e) => {
-                    if (e.key === 'Enter') handleRootAddConfirm()
-                    if (e.key === 'Escape') { setAddingRoot(null); setRootNewName('') }
-                  }}
-                  placeholder={addingRoot === 'dir' ? '文件夹名称' : '文件名称（如 doc.md）'}
-                  style={{
-                    flex: 1, fontSize: 'var(--text-sm)', fontFamily: 'monospace',
-                    border: '1px solid var(--color-border)', borderRadius: 'var(--radius-xs)',
-                    padding: '2px 6px', outline: 'none', background: 'var(--color-bg)',
-                  }}
-                />
-                <button
-                  onClick={handleRootAddConfirm}
-                  style={{ padding: '1px 8px', border: '1px solid var(--color-border)', borderRadius: 'var(--radius-xs)', background: 'transparent', fontSize: 'var(--text-xs)', cursor: 'pointer' }}
-                >
-                  确认
-                </button>
-                <button
-                  onClick={() => { setAddingRoot(null); setRootNewName('') }}
-                  style={{ padding: '1px 8px', border: '1px solid var(--color-border)', borderRadius: 'var(--radius-xs)', background: 'transparent', fontSize: 'var(--text-xs)', cursor: 'pointer' }}
-                >
-                  取消
-                </button>
-              </div>
+              <InlineNameInput
+                type={addingRoot}
+                indent={0}
+                onConfirm={handleRootAddConfirm}
+                onCancel={() => setAddingRoot(null)}
+              />
             )}
-
             {tree.length === 0 && !addingRoot ? (
-              <p style={{ padding: '24px 0', textAlign: 'center', color: 'var(--color-text-secondary)', fontSize: 'var(--text-body)' }}>
-                暂无文件
-              </p>
+              <div style={{ padding: '36px 0', textAlign: 'center', color: 'var(--color-text-secondary)' }}>
+                <div style={{ fontSize: 32, marginBottom: 10 }}>📂</div>
+                <p style={{ margin: 0, fontSize: 'var(--text-sm)' }}>暂无文件，点击上方上传或新建</p>
+              </div>
             ) : (
               tree.map((node) => (
                 <TreeNodeRow
@@ -737,11 +702,7 @@ function FilesList({ onToast }: { onToast: (item: Omit<ToastItem, 'id'>) => void
       </div>
 
       {editingFile && (
-        <FileEditor
-          filename={editingFile}
-          onClose={() => setEditingFile(null)}
-          onToast={onToast}
-        />
+        <FileEditor filename={editingFile} onClose={() => setEditingFile(null)} onToast={onToast} />
       )}
     </div>
   )
@@ -763,61 +724,48 @@ export default function SyncPage() {
   const jobs = polledJobsData?.data ?? jobsData?.data ?? []
 
   return (
-    <div style={{ padding: '32px', maxWidth: 760 }}>
-      <h1
-        style={{
-          fontSize: 'var(--text-2xl)',
-          fontWeight: 600,
-          color: 'var(--color-text-primary)',
-          margin: '0 0 24px',
-        }}
-      >
-        文档上传
-      </h1>
+    <div style={{ padding: '36px 40px', maxWidth: 820 }}>
+      <style>{GLOBAL_STYLES}</style>
+
+      {/* Page title */}
+      <div style={{ marginBottom: 32 }}>
+        <h1 style={{ fontSize: 'var(--text-2xl)', fontWeight: 700, color: 'var(--color-text-primary)', margin: '0 0 6px' }}>
+          文档上传
+        </h1>
+        <p style={{ margin: 0, fontSize: 'var(--text-sm)', color: 'var(--color-text-secondary)' }}>
+          上传本地 Markdown / 文本文件，或在线创建和编辑文档。
+        </p>
+      </div>
 
       <UploadPanel onToast={addToast} />
       <FilesList onToast={addToast} />
 
-      {/* Jobs list */}
+      {/* Upload records */}
       <div>
-        <h2
-          style={{
-            fontSize: 'var(--text-base)',
-            fontWeight: 600,
-            color: 'var(--color-text-secondary)',
-            margin: '0 0 8px',
-            textTransform: 'uppercase',
-            letterSpacing: '0.04em',
-          }}
-        >
-          上传记录
-        </h2>
+        <SectionHeader title="上传记录">
+          {hasActiveJobs && (
+            <span style={{
+              display: 'inline-flex', alignItems: 'center', gap: 6,
+              fontSize: 'var(--text-xs)', color: '#1d4ed8',
+              background: '#eff6ff', padding: '2px 10px',
+              borderRadius: 'var(--radius-full)',
+            }}>
+              <span style={{ width: 6, height: 6, borderRadius: '50%', background: '#3b82f6', animation: 'pulse 1.5s infinite' }} />
+              运行中，每 3 秒刷新
+            </span>
+          )}
+        </SectionHeader>
 
-        {hasActiveJobs && (
-          <p style={{ fontSize: 'var(--text-sm)', color: 'var(--color-text-secondary)', margin: '0 0 8px' }}>
-            ● 有任务运行中，每 3 秒自动刷新
-          </p>
-        )}
-
-        <div
-          style={{
-            border: '1px solid var(--color-border)',
-            borderRadius: 'var(--radius-sm)',
-            padding: '0 16px',
-            background: 'var(--color-bg)',
-          }}
-        >
+        <div style={{
+          border: '1px solid var(--color-border)',
+          borderRadius: 8,
+          overflow: 'hidden',
+          background: 'var(--color-bg)',
+        }}>
           {jobs.length === 0 ? (
-            <p
-              style={{
-                padding: '24px 0',
-                textAlign: 'center',
-                color: 'var(--color-text-secondary)',
-                fontSize: 'var(--text-body)',
-              }}
-            >
+            <div style={{ padding: '36px 0', textAlign: 'center', color: 'var(--color-text-secondary)', fontSize: 'var(--text-sm)' }}>
               暂无上传记录
-            </p>
+            </div>
           ) : (
             jobs.map((job) => <JobRow key={job.id} job={job} />)
           )}
