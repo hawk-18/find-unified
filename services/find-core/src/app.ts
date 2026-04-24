@@ -329,6 +329,8 @@ async function findMcp(
               score = Number((parsed.score * (cfg.fusion?.weights?.mcp ?? 1.0)).toFixed(2))
             }
           } catch { /* not JSON, use raw text */ }
+          // Skip low-confidence MCP results (score < 2 means weak keyword match)
+          if (score < 2) continue
           evidence.push({
             id: `mcp-${i + 1}`,
             source_type: 'mcp',
