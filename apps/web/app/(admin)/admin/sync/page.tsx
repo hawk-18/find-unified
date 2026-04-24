@@ -10,6 +10,7 @@ import {
   useUpdateFileContent,
   useCreateDir,
   useDeleteDir,
+  useMoveFile,
   type SyncJob,
 } from '@/lib/queries/admin-sync'
 import { apiFetch } from '@/lib/api-client'
@@ -27,6 +28,9 @@ const GLOBAL_STYLES = `
   .sync-btn-primary:hover:not(:disabled) { filter: brightness(0.92); }
   .sync-upload-zone:hover { border-color: var(--color-brand) !important; background: var(--color-surface-secondary) !important; }
   .sync-input:focus { border-color: var(--color-brand) !important; box-shadow: 0 0 0 2px color-mix(in srgb, var(--color-brand) 15%, transparent); }
+  .sync-tree-row[data-drag-over="true"] { background: color-mix(in srgb, var(--color-brand) 8%, var(--color-bg)) !important; outline: 2px dashed var(--color-brand); outline-offset: -2px; }
+  .sync-tree-row[draggable="true"] { cursor: grab; }
+  .sync-rename-input { flex: 1; font-family: monospace; font-size: var(--text-sm); background: var(--color-bg); border: 1px solid var(--color-brand); border-radius: 3px; padding: 1px 6px; outline: none; color: var(--color-text-primary); box-shadow: 0 0 0 2px color-mix(in srgb, var(--color-brand) 15%, transparent); }
 `
 
 // ── Status badge ──────────────────────────────────────────────────────────────
@@ -496,17 +500,45 @@ function TreeNodeRow({ node, depth, onEdit, onDeleteFile, onDeleteDir, onToast }
 }) {
   const [open, setOpen] = useState(true)
   const [addingItem, setAddingItem] = useState<'file' | 'dir' | null>(null)
+  const [dragOver, setDragOver] = useState(false)
+  const [renaming, setRenaming] = useState(false)
+  const [renameVal, setRenameVal] = useState(node.name)
+  const renameRef = useRef<HTMLInputElement>(null)
   const createDir = useCreateDir()
+  const moveFile = useMoveFile()
+  const qc = useQueryClient()
   const uploadMutation = useMutation({
     mutationFn: async ({ filename, content }: { filename: string; content: string }) =>
       apiFetch('/api/ingest/http/push', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ filename, content }),
       }),
-    onSuccess: () => useQueryClient().invalidateQueries({ queryKey: ['admin', 'ingest', 'files'] }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['admin', 'ingest', 'files'] }),
   })
 
   const indent = depth * 18
+
+  // Start rename on double-click
+  const handleDoubleClick = (e: React.MouseEvent) => {
+    e.stopPropagation()
+    setRenameVal(node.name)
+    setRenaming(true)
+    setTimeout(() => renameRef.current?.select(), 0)
+  }
+
+  const commitRename = async () => {
+    const trimmed = renameVal.trim()
+    setRenaming(false)
+    if (!trimmed || trimmed === node.name) return
+    const parent = node.path.includes('/') ? node.path.slice(0, node.path.lastIndexOf('/')) : ''
+    const newPath = parent ? `${parent}/${trimmed}` : trimmed
+    try {
+      await moveFile.mutateAsync({ from: node.path, to: newPath })
+      onToast({ message: `已重命名为 ${trimmed}`, type: 'success' })
+    } catch {
+      onToast({ message: '重命名失败', type: 'error' })
+    }
+  }
 
   const handleAddConfirm = async (trimmed: string) => {
     const fullPath = node.path ? `${node.path}/${trimmed}` : trimmed
@@ -525,10 +557,53 @@ function TreeNodeRow({ node, depth, onEdit, onDeleteFile, onDeleteDir, onToast }
     setAddingItem(null)
   }
 
+  // Drag handlers
+  const handleDragStart = (e: React.DragEvent) => {
+    e.dataTransfer.setData('text/plain', node.path)
+    e.dataTransfer.effectAllowed = 'move'
+  }
+
+  const handleDragOver = (e: React.DragEvent) => {
+    if (!node.isDir) return
+    e.preventDefault()
+    e.dataTransfer.dropEffect = 'move'
+    setDragOver(true)
+  }
+
+  const handleDragLeave = () => setDragOver(false)
+
+  const handleDrop = async (e: React.DragEvent) => {
+    e.preventDefault()
+    e.stopPropagation()
+    setDragOver(false)
+    if (!node.isDir) return
+    const fromPath = e.dataTransfer.getData('text/plain')
+    if (!fromPath || fromPath === node.path) return
+    // Prevent dropping into own subtree
+    if (fromPath.startsWith(node.path + '/')) {
+      onToast({ message: '不能将文件夹拖入自身', type: 'error' })
+      return
+    }
+    const name = fromPath.includes('/') ? fromPath.slice(fromPath.lastIndexOf('/') + 1) : fromPath
+    const toPath = `${node.path}/${name}`
+    try {
+      await moveFile.mutateAsync({ from: fromPath, to: toPath })
+      onToast({ message: `已移动到 ${node.path}/`, type: 'success' })
+    } catch {
+      onToast({ message: '移动失败', type: 'error' })
+    }
+  }
+
   return (
     <>
       <div
         className="sync-tree-row"
+        draggable
+        data-drag-over={dragOver ? 'true' : undefined}
+        onDragStart={handleDragStart}
+        onDragOver={handleDragOver}
+        onDragLeave={handleDragLeave}
+        onDrop={handleDrop}
         style={{
           display: 'flex', alignItems: 'center', gap: 6,
           padding: '7px 12px', paddingLeft: 12 + indent,
@@ -553,12 +628,33 @@ function TreeNodeRow({ node, depth, onEdit, onDeleteFile, onDeleteDir, onToast }
               ▾
             </span>
             <span style={{ fontSize: 15, flexShrink: 0 }}>📁</span>
-            <span style={{
-              fontSize: 'var(--text-sm)', fontWeight: 600,
-              color: 'var(--color-text-primary)', flex: 1,
-            }}>
-              {node.name}
-            </span>
+            {renaming ? (
+              <input
+                ref={renameRef}
+                className="sync-rename-input"
+                value={renameVal}
+                autoFocus
+                onChange={(e) => setRenameVal(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') commitRename()
+                  if (e.key === 'Escape') setRenaming(false)
+                }}
+                onBlur={commitRename}
+                onClick={(e) => e.stopPropagation()}
+              />
+            ) : (
+              <span
+                onDoubleClick={handleDoubleClick}
+                style={{
+                  fontSize: 'var(--text-sm)', fontWeight: 600,
+                  color: 'var(--color-text-primary)', flex: 1,
+                  userSelect: 'none',
+                }}
+                title="双击重命名"
+              >
+                {node.name}
+              </span>
+            )}
             <div className="sync-row-actions" style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
               <button className="sync-btn" onClick={() => setAddingItem('dir')} style={ghostBtn()}>+ 文件夹</button>
               <button className="sync-btn sync-btn-danger" onClick={() => onDeleteDir(node.path)} style={ghostBtn(true)}>删除</button>
@@ -568,13 +664,34 @@ function TreeNodeRow({ node, depth, onEdit, onDeleteFile, onDeleteDir, onToast }
           <>
             <span style={{ width: 16, flexShrink: 0 }} />
             <span style={{ fontSize: 14, flexShrink: 0 }}>📄</span>
-            <span style={{
-              fontSize: 'var(--text-sm)', fontFamily: 'monospace',
-              color: 'var(--color-text-primary)', flex: 1,
-              overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
-            }}>
-              {node.name}
-            </span>
+            {renaming ? (
+              <input
+                ref={renameRef}
+                className="sync-rename-input"
+                value={renameVal}
+                autoFocus
+                onChange={(e) => setRenameVal(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') commitRename()
+                  if (e.key === 'Escape') setRenaming(false)
+                }}
+                onBlur={commitRename}
+                onClick={(e) => e.stopPropagation()}
+              />
+            ) : (
+              <span
+                onDoubleClick={handleDoubleClick}
+                style={{
+                  fontSize: 'var(--text-sm)', fontFamily: 'monospace',
+                  color: 'var(--color-text-primary)', flex: 1,
+                  overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+                  userSelect: 'none',
+                }}
+                title="双击重命名"
+              >
+                {node.name}
+              </span>
+            )}
             <div className="sync-row-actions" style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
               <button className="sync-btn" onClick={() => onEdit(node.path)} style={ghostBtn()}>预览 / 编辑</button>
               <button className="sync-btn sync-btn-danger" onClick={() => onDeleteFile(node.path)} style={ghostBtn(true)}>删除</button>

@@ -175,6 +175,36 @@ export async function ingestRoutes(app: FastifyInstance) {
     }
   )
 
+  // PUT /api/ingest/http/move — move/rename a file or directory (admin UI)
+  app.put(
+    '/api/ingest/http/move',
+    { preHandler: [authenticate, requireRole(['admin'])] },
+    async (request, reply) => {
+      const body = request.body as { from?: unknown; to?: unknown }
+      if (typeof body?.from !== 'string' || !body.from.trim()) {
+        return reply.status(400).send({ error: 'from must be a non-empty string' })
+      }
+      if (typeof body?.to !== 'string' || !body.to.trim()) {
+        return reply.status(400).send({ error: 'to must be a non-empty string' })
+      }
+      const fromResolved = path.resolve(path.join(SYNC_HTTP_DIR, body.from))
+      const toResolved = path.resolve(path.join(SYNC_HTTP_DIR, body.to))
+      if (
+        !fromResolved.startsWith(path.resolve(SYNC_HTTP_DIR)) ||
+        !toResolved.startsWith(path.resolve(SYNC_HTTP_DIR))
+      ) {
+        return reply.status(400).send({ error: 'Invalid path' })
+      }
+      try {
+        await fs.mkdir(path.dirname(toResolved), { recursive: true })
+        await fs.rename(fromResolved, toResolved)
+      } catch (err) {
+        return reply.status(400).send({ error: String(err) })
+      }
+      return reply.send({ ok: true })
+    }
+  )
+
   // GET /api/ingest/http/content/* — read file content (admin UI preview)
   app.get(
     '/api/ingest/http/content/*',

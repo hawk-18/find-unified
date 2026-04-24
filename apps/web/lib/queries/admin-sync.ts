@@ -64,6 +64,18 @@ export function useDeleteDir() {
   })
 }
 
+export function useMoveFile() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: ({ from, to }: { from: string; to: string }) =>
+      apiFetch('/api/ingest/http/move', {
+        method: 'PUT',
+        body: JSON.stringify({ from, to }),
+      }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['admin', 'ingest', 'files'] }),
+  })
+}
+
 export function useFileContent(filename: string | null) {
   return useQuery<{ content: string }>({
     queryKey: ['admin', 'ingest', 'content', filename],
