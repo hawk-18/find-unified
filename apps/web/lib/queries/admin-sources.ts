@@ -29,6 +29,13 @@ export interface McpUpdateBody {
   enabled: boolean
 }
 
+export interface McpEntry {
+  name: string
+  endpoint: string
+  timeout_ms: number
+  enabled: boolean
+}
+
 export function useUpdateMcp() {
   const qc = useQueryClient()
   return useMutation({
@@ -38,6 +45,25 @@ export function useUpdateMcp() {
         body: JSON.stringify(body),
       }),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['admin', 'sources', 'mcp'] }),
+  })
+}
+
+export function useMcpList() {
+  return useQuery<{ list: McpEntry[] }>({
+    queryKey: ['admin', 'sources', 'mcp', 'list'],
+    queryFn: () => apiFetch('/api/admin/sources/mcp/list') as Promise<{ list: McpEntry[] }>,
+  })
+}
+
+export function useUpdateMcpList() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (list: McpEntry[]) =>
+      apiFetch('/api/admin/sources/mcp/list', {
+        method: 'PUT',
+        body: JSON.stringify({ list }),
+      }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['admin', 'sources', 'mcp', 'list'] }),
   })
 }
 

@@ -15,9 +15,17 @@ const CONFIG_PATH =
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
+interface McpEntry {
+  name?: string
+  enabled?: boolean
+  endpoint?: string
+  timeout_ms?: number
+}
+
 interface SourceConfig {
   local?: { enabled?: boolean; roots?: string[]; max_files?: number; max_snippets?: number }
   mcp?: { enabled?: boolean; endpoint?: string; timeout_ms?: number }
+  mcpList?: McpEntry[]
   db?: { enabled?: boolean; url?: string }
   fusion?: { weights?: { local?: number; mcp?: number; db?: number }; top_k_default?: number }
 }
@@ -261,35 +269,21 @@ function findLocal(
   }
 }
 
-// ─── MCP search ───────────────────────────────────────────────────────────────
+// ─── MCP search (single entry) ────────────────────────────────────────────────
 
-async function findMcp(
+async function findMcpEntry(
   query: string,
-  cfg: SourceConfig
-): Promise<{ status: SourceStatus; evidence: Evidence[] }> {
-  const start = nowMs()
-  const mcpCfg = cfg.mcp
-
-  if (!mcpCfg?.enabled) {
-    return {
-      status: { source: 'mcp', status: 'unavailable', message: 'mcp source disabled', latency_ms: 0 },
-      evidence: [],
-    }
-  }
-  if (!mcpCfg.endpoint) {
-    return {
-      status: { source: 'mcp', status: 'degraded', message: '未配置 MCP endpoint', latency_ms: nowMs() - start },
-      evidence: [],
-    }
-  }
+  mcpCfg: McpEntry,
+  weight: number,
+  idPrefix: string
+): Promise<Evidence[]> {
+  if (!mcpCfg?.enabled || !mcpCfg.endpoint) return []
 
   const timeoutMs = mcpCfg.timeout_ms ?? 8000
   const client = new Client({ name: 'find-core', version: '1.0.0' })
 
   try {
     const endpointUrl = new URL(mcpCfg.endpoint)
-
-    // Try StreamableHTTP first, fall back to SSE
     let transport
     try {
       transport = new StreamableHTTPClientTransport(endpointUrl)
@@ -306,8 +300,6 @@ async function findMcp(
     }
 
     const evidence: Evidence[] = []
-
-    // Try calling find_search tool if available
     const toolsResult = await client.listTools()
     const hasFindSearch = toolsResult.tools.some((t) => t.name === 'find_search')
 
@@ -317,7 +309,6 @@ async function findMcp(
       for (let i = 0; i < items.length; i++) {
         const item = items[i]
         if (item.type === 'text') {
-          // Try to parse structured JSON result from MCP server
           let title = `MCP 结果 ${i + 1}`
           let snippet = String(item.text).slice(0, 400)
           let score = Number(((5 - i) / 5).toFixed(2))
@@ -325,24 +316,13 @@ async function findMcp(
             const parsed = JSON.parse(String(item.text))
             if (parsed.title) title = parsed.title
             if (parsed.snippet) snippet = String(parsed.snippet).slice(0, 400)
-            if (typeof parsed.score === 'number') {
-              score = Number((parsed.score * (cfg.fusion?.weights?.mcp ?? 1.0)).toFixed(2))
-            }
-          } catch { /* not JSON, use raw text */ }
-          // Skip low-confidence MCP results (score < 2 means weak keyword match)
+            if (typeof parsed.score === 'number') score = Number((parsed.score * weight).toFixed(2))
+          } catch { /* not JSON */ }
           if (score < 2) continue
-          evidence.push({
-            id: `mcp-${i + 1}`,
-            source_type: 'mcp',
-            title,
-            snippet,
-            score,
-            source_ref: mcpCfg.endpoint,
-          })
+          evidence.push({ id: `${idPrefix}-${i + 1}`, source_type: 'mcp', title, snippet, score, source_ref: mcpCfg.endpoint })
         }
       }
     } else {
-      // Fall back: search through resources
       const resources = await client.listResources()
       const keywords = extractKeywords(query)
       const scored: { res: typeof resources.resources[0]; score: number }[] = []
@@ -355,17 +335,51 @@ async function findMcp(
       for (let i = 0; i < Math.min(scored.length, 5); i++) {
         const { res, score } = scored[i]
         evidence.push({
-          id: `mcp-${i + 1}`,
+          id: `${idPrefix}-${i + 1}`,
           source_type: 'mcp',
           title: res.name,
           snippet: res.description ?? res.uri,
-          score: Number((score * (cfg.fusion?.weights?.mcp ?? 1.0)).toFixed(2)),
+          score: Number((score * weight).toFixed(2)),
           source_ref: res.uri,
         })
       }
     }
 
     await client.close()
+    return evidence
+  } catch {
+    return []
+  }
+}
+
+// ─── MCP search ───────────────────────────────────────────────────────────────
+
+async function findMcp(
+  query: string,
+  cfg: SourceConfig
+): Promise<{ status: SourceStatus; evidence: Evidence[] }> {
+  const start = nowMs()
+  const weight = cfg.fusion?.weights?.mcp ?? 1.0
+
+  // Build list: prefer mcpList, fall back to legacy mcp
+  const entries: McpEntry[] = cfg.mcpList?.length
+    ? cfg.mcpList
+    : cfg.mcp ? [cfg.mcp] : []
+
+  const enabledEntries = entries.filter((e) => e.enabled && e.endpoint)
+
+  if (!enabledEntries.length) {
+    return {
+      status: { source: 'mcp', status: 'unavailable', message: 'mcp source disabled', latency_ms: 0 },
+      evidence: [],
+    }
+  }
+
+  try {
+    const results = await Promise.all(
+      enabledEntries.map((e, idx) => findMcpEntry(query, e, weight, `mcp${idx > 0 ? idx + 1 : ''}`))
+    )
+    const evidence = results.flat()
 
     return {
       status: {

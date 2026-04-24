@@ -68,6 +68,17 @@ const mcpBodySchema = z.object({
   enabled: z.boolean(),
 })
 
+const mcpEntrySchema = z.object({
+  name: z.string().min(1),
+  endpoint: z.string(),
+  timeout_ms: z.number().int().min(1).max(30000).default(5000),
+  enabled: z.boolean(),
+})
+
+const mcpListBodySchema = z.object({
+  list: z.array(mcpEntrySchema),
+})
+
 const sqliteBodySchema = z.object({
   url: z.string().min(1, '必填').refine((v) => v.startsWith('file:'), { message: '必须以 file: 开头' }),
   enabled: z.boolean(),
@@ -113,6 +124,46 @@ export async function sourcesAdminRoutes(app: FastifyInstance) {
     await writeSourcesJson({
       mcp: { enabled, endpoint, timeout_ms },
     })
+
+    return reply.status(200).send({ ok: true })
+  })
+
+  // GET /mcp/list — get MCP list
+  app.get('/mcp/list', { preHandler }, async (_request, reply) => {
+    const config = await prisma.sourceConfig.findUnique({ where: { sourceType: 'mcp_list' } })
+    if (!config) return reply.send({ list: [] })
+    let list: unknown[] = []
+    try { list = JSON.parse(config.configJson) } catch {}
+    return reply.send({ list })
+  })
+
+  // PUT /mcp/list — replace full MCP list
+  app.put('/mcp/list', { preHandler }, async (request, reply) => {
+    const parsed = mcpListBodySchema.safeParse(request.body)
+    if (!parsed.success) {
+      return reply.status(400).send({ error: 'Invalid request', details: parsed.error.issues })
+    }
+    const { list } = parsed.data
+    const configJson = JSON.stringify(list)
+
+    await prisma.sourceConfig.upsert({
+      where: { sourceType: 'mcp_list' },
+      update: { enabled: true, configJson, updatedBy: request.user!.userId },
+      create: { sourceType: 'mcp_list', enabled: true, configJson, updatedBy: request.user!.userId },
+    })
+
+    await prisma.auditLog.create({
+      data: {
+        operatorUserId: request.user!.userId,
+        action: 'update_source_config',
+        targetType: 'source_config',
+        targetId: 'mcp_list',
+        detailJson: JSON.stringify({ count: list.length }),
+      },
+    })
+
+    // Sync to find-core sources.json — write mcpList, keep legacy mcp for compat
+    await writeSourcesJson({ mcpList: list })
 
     return reply.status(200).send({ ok: true })
   })
