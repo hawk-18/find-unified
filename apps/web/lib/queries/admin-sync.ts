@@ -45,3 +45,25 @@ export function useDeleteFile() {
     onSuccess: () => qc.invalidateQueries({ queryKey: ['admin', 'ingest', 'files'] }),
   })
 }
+
+export function useFileContent(filename: string | null) {
+  return useQuery<{ content: string }>({
+    queryKey: ['admin', 'ingest', 'content', filename],
+    queryFn: () => apiFetch(`/api/ingest/http/content/${filename}`) as Promise<{ content: string }>,
+    enabled: !!filename,
+  })
+}
+
+export function useUpdateFileContent() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: ({ filename, content }: { filename: string; content: string }) =>
+      apiFetch(`/api/ingest/http/content/${filename}`, {
+        method: 'PUT',
+        body: JSON.stringify({ content }),
+      }),
+    onSuccess: (_data, { filename }) => {
+      qc.invalidateQueries({ queryKey: ['admin', 'ingest', 'content', filename] })
+    },
+  })
+}

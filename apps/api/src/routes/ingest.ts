@@ -133,4 +133,46 @@ export async function ingestRoutes(app: FastifyInstance) {
       return reply.send({ ok: true })
     }
   )
+
+  // GET /api/ingest/http/content/* — read file content (admin UI preview)
+  app.get(
+    '/api/ingest/http/content/*',
+    { preHandler: [authenticate, requireRole(['admin'])] },
+    async (request, reply) => {
+      const filename = (request.params as { '*': string })['*']
+      const resolved = path.resolve(path.join(SYNC_HTTP_DIR, filename))
+      if (!resolved.startsWith(path.resolve(SYNC_HTTP_DIR))) {
+        return reply.status(400).send({ error: 'Invalid path' })
+      }
+      try {
+        const content = await fs.readFile(resolved, 'utf-8')
+        return reply.send({ content })
+      } catch {
+        return reply.status(404).send({ error: 'File not found' })
+      }
+    }
+  )
+
+  // PUT /api/ingest/http/content/* — update file content (admin UI editor)
+  app.put(
+    '/api/ingest/http/content/*',
+    { preHandler: [authenticate, requireRole(['admin'])] },
+    async (request, reply) => {
+      const filename = (request.params as { '*': string })['*']
+      const resolved = path.resolve(path.join(SYNC_HTTP_DIR, filename))
+      if (!resolved.startsWith(path.resolve(SYNC_HTTP_DIR))) {
+        return reply.status(400).send({ error: 'Invalid path' })
+      }
+      const body = request.body as { content?: unknown }
+      if (typeof body?.content !== 'string') {
+        return reply.status(400).send({ error: 'content must be a string' })
+      }
+      try {
+        await fs.writeFile(resolved, body.content, 'utf-8')
+      } catch {
+        return reply.status(404).send({ error: 'File not found' })
+      }
+      return reply.send({ ok: true })
+    }
+  )
 }

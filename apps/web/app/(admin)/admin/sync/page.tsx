@@ -6,6 +6,8 @@ import {
   useSyncJobs,
   useUploadedFiles,
   useDeleteFile,
+  useFileContent,
+  useUpdateFileContent,
   type SyncJob,
 } from '@/lib/queries/admin-sync'
 import { apiFetch } from '@/lib/api-client'
@@ -211,10 +213,131 @@ function UploadPanel({ onToast }: { onToast: (item: Omit<ToastItem, 'id'>) => vo
   )
 }
 
+// ── File editor modal ────────────────────────────────────────────────────────
+function FileEditor({
+  filename,
+  onClose,
+  onToast,
+}: {
+  filename: string
+  onClose: () => void
+  onToast: (item: Omit<ToastItem, 'id'>) => void
+}) {
+  const { data, isLoading } = useFileContent(filename)
+  const updateContent = useUpdateFileContent()
+  const [edited, setEdited] = useState<string | null>(null)
+
+  const content = edited ?? data?.content ?? ''
+  const isDirty = edited !== null && edited !== data?.content
+
+  const handleSave = async () => {
+    if (edited === null) return
+    try {
+      await updateContent.mutateAsync({ filename, content: edited })
+      setEdited(null)
+      onToast({ message: '已保存', type: 'success' })
+    } catch {
+      onToast({ message: '保存失败', type: 'error' })
+    }
+  }
+
+  return (
+    <div
+      style={{
+        position: 'fixed', inset: 0, zIndex: 50,
+        background: 'rgba(0,0,0,0.4)',
+        display: 'flex', alignItems: 'center', justifyContent: 'center',
+      }}
+      onClick={(e) => { if (e.target === e.currentTarget) onClose() }}
+    >
+      <div
+        style={{
+          background: 'var(--color-bg)',
+          borderRadius: 'var(--radius-sm)',
+          border: '1px solid var(--color-border)',
+          width: '80vw', maxWidth: 900,
+          maxHeight: '85vh',
+          display: 'flex', flexDirection: 'column',
+          overflow: 'hidden',
+        }}
+      >
+        {/* Header */}
+        <div
+          style={{
+            padding: '12px 16px',
+            borderBottom: '1px solid var(--color-border)',
+            display: 'flex', alignItems: 'center', gap: 12,
+          }}
+        >
+          <span style={{ flex: 1, fontFamily: 'monospace', fontSize: 'var(--text-sm)', color: 'var(--color-text-primary)' }}>
+            {filename}
+          </span>
+          <button
+            onClick={handleSave}
+            disabled={!isDirty || updateContent.isPending}
+            style={{
+              padding: '4px 14px',
+              borderRadius: 'var(--radius-xs)',
+              border: 'none',
+              background: isDirty ? 'var(--color-brand)' : 'var(--color-surface-secondary)',
+              color: isDirty ? '#fff' : 'var(--color-text-disabled)',
+              fontSize: 'var(--text-sm)',
+              fontWeight: 600,
+              cursor: isDirty ? 'pointer' : 'default',
+            }}
+          >
+            {updateContent.isPending ? '保存中…' : '保存'}
+          </button>
+          <button
+            onClick={onClose}
+            style={{
+              padding: '4px 10px',
+              borderRadius: 'var(--radius-xs)',
+              border: '1px solid var(--color-border)',
+              background: 'transparent',
+              fontSize: 'var(--text-sm)',
+              color: 'var(--color-text-secondary)',
+              cursor: 'pointer',
+            }}
+          >
+            关闭
+          </button>
+        </div>
+
+        {/* Body */}
+        <div style={{ flex: 1, overflow: 'hidden', display: 'flex' }}>
+          {isLoading ? (
+            <p style={{ padding: 24, color: 'var(--color-text-secondary)' }}>加载中…</p>
+          ) : (
+            <textarea
+              value={content}
+              onChange={(e) => setEdited(e.target.value)}
+              style={{
+                flex: 1,
+                resize: 'none',
+                border: 'none',
+                outline: 'none',
+                padding: '16px',
+                fontFamily: 'monospace',
+                fontSize: 'var(--text-sm)',
+                lineHeight: 1.6,
+                color: 'var(--color-text-primary)',
+                background: 'var(--color-bg)',
+              }}
+              spellCheck={false}
+            />
+          )}
+        </div>
+      </div>
+    </div>
+  )
+}
+
 // ── Uploaded files list ───────────────────────────────────────────────────────
 function FilesList({ onToast }: { onToast: (item: Omit<ToastItem, 'id'>) => void }) {
   const { data, isLoading } = useUploadedFiles()
   const deleteFile = useDeleteFile()
+  const [editingFile, setEditingFile] = useState<string | null>(null)
 
   const handleDelete = async (filename: string) => {
     try {
@@ -270,6 +393,20 @@ function FilesList({ onToast }: { onToast: (item: Omit<ToastItem, 'id'>) => void
                 {filename}
               </span>
               <button
+                onClick={() => setEditingFile(filename)}
+                style={{
+                  padding: '3px 12px',
+                  border: '1px solid var(--color-border)',
+                  borderRadius: 'var(--radius-xs)',
+                  background: 'transparent',
+                  color: 'var(--color-text-secondary)',
+                  fontSize: 'var(--text-xs)',
+                  cursor: 'pointer',
+                }}
+              >
+                预览 / 编辑
+              </button>
+              <button
                 onClick={() => handleDelete(filename)}
                 disabled={deleteFile.isPending}
                 style={{
@@ -288,6 +425,14 @@ function FilesList({ onToast }: { onToast: (item: Omit<ToastItem, 'id'>) => void
           ))
         )}
       </div>
+
+      {editingFile && (
+        <FileEditor
+          filename={editingFile}
+          onClose={() => setEditingFile(null)}
+          onToast={onToast}
+        />
+      )}
     </div>
   )
 }
