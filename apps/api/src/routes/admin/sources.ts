@@ -128,13 +128,31 @@ export async function sourcesAdminRoutes(app: FastifyInstance) {
     return reply.status(200).send({ ok: true })
   })
 
-  // GET /mcp/list — get MCP list
+  // GET /mcp/list — get MCP list (falls back to legacy mcp record if list not yet created)
   app.get('/mcp/list', { preHandler }, async (_request, reply) => {
     const config = await prisma.sourceConfig.findUnique({ where: { sourceType: 'mcp_list' } })
-    if (!config) return reply.send({ list: [] })
-    let list: unknown[] = []
-    try { list = JSON.parse(config.configJson) } catch {}
-    return reply.send({ list })
+    if (config) {
+      let list: unknown[] = []
+      try { list = JSON.parse(config.configJson) } catch {}
+      return reply.send({ list })
+    }
+
+    // Migrate from legacy single-mcp record
+    const legacy = await prisma.sourceConfig.findUnique({ where: { sourceType: 'mcp' } })
+    if (legacy) {
+      let cfg: Record<string, unknown> = {}
+      try { cfg = JSON.parse(legacy.configJson) } catch {}
+      const endpoint = typeof cfg.endpoint === 'string' ? decryptIfNeeded(cfg.endpoint) : ''
+      const list = endpoint ? [{
+        name: 'MCP',
+        endpoint,
+        timeout_ms: typeof cfg.timeout_ms === 'number' ? cfg.timeout_ms : 5000,
+        enabled: legacy.enabled,
+      }] : []
+      return reply.send({ list })
+    }
+
+    return reply.send({ list: [] })
   })
 
   // PUT /mcp/list — replace full MCP list
