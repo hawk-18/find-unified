@@ -134,6 +134,47 @@ export async function ingestRoutes(app: FastifyInstance) {
     }
   )
 
+  // POST /api/ingest/http/dirs — create a directory (admin UI)
+  app.post(
+    '/api/ingest/http/dirs',
+    { preHandler: [authenticate, requireRole(['admin'])] },
+    async (request, reply) => {
+      const body = request.body as { dirname?: unknown }
+      if (typeof body?.dirname !== 'string' || !body.dirname.trim()) {
+        return reply.status(400).send({ error: 'dirname must be a non-empty string' })
+      }
+      const resolved = path.resolve(path.join(SYNC_HTTP_DIR, body.dirname))
+      if (!resolved.startsWith(path.resolve(SYNC_HTTP_DIR))) {
+        return reply.status(400).send({ error: 'Invalid dirname path' })
+      }
+      await fs.mkdir(resolved, { recursive: true })
+      // Create a .gitkeep so the directory appears in file listings
+      const keepFile = path.join(resolved, '.gitkeep')
+      try { await fs.writeFile(keepFile, '', 'utf-8') } catch { /* already exists */ }
+      await ensureRootInConfig(SYNC_HTTP_DIR)
+      return reply.send({ ok: true })
+    }
+  )
+
+  // DELETE /api/ingest/http/dirs/* — delete a directory recursively (admin UI)
+  app.delete(
+    '/api/ingest/http/dirs/*',
+    { preHandler: [authenticate, requireRole(['admin'])] },
+    async (request, reply) => {
+      const dirname = (request.params as { '*': string })['*']
+      const resolved = path.resolve(path.join(SYNC_HTTP_DIR, dirname))
+      if (!resolved.startsWith(path.resolve(SYNC_HTTP_DIR)) || resolved === path.resolve(SYNC_HTTP_DIR)) {
+        return reply.status(400).send({ error: 'Invalid path' })
+      }
+      try {
+        await fs.rm(resolved, { recursive: true, force: true })
+      } catch {
+        return reply.status(404).send({ error: 'Directory not found' })
+      }
+      return reply.send({ ok: true })
+    }
+  )
+
   // GET /api/ingest/http/content/* — read file content (admin UI preview)
   app.get(
     '/api/ingest/http/content/*',

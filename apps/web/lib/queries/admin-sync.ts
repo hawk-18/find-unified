@@ -46,6 +46,24 @@ export function useDeleteFile() {
   })
 }
 
+export function useCreateDir() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (dirname: string) =>
+      apiFetch('/api/ingest/http/dirs', { method: 'POST', body: JSON.stringify({ dirname }) }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['admin', 'ingest', 'files'] }),
+  })
+}
+
+export function useDeleteDir() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (dirname: string) =>
+      apiFetch(`/api/ingest/http/dirs/${dirname}`, { method: 'DELETE' }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['admin', 'ingest', 'files'] }),
+  })
+}
+
 export function useFileContent(filename: string | null) {
   return useQuery<{ content: string }>({
     queryKey: ['admin', 'ingest', 'content', filename],

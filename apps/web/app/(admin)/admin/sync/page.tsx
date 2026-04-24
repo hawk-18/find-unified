@@ -8,6 +8,8 @@ import {
   useDeleteFile,
   useFileContent,
   useUpdateFileContent,
+  useCreateDir,
+  useDeleteDir,
   type SyncJob,
 } from '@/lib/queries/admin-sync'
 import { apiFetch } from '@/lib/api-client'
@@ -348,35 +350,315 @@ function FileEditor({
   )
 }
 
+// ── Tree helpers ──────────────────────────────────────────────────────────────
+interface TreeNode {
+  name: string
+  path: string       // relative path from root
+  isDir: boolean
+  children: TreeNode[]
+}
+
+function buildTree(files: string[]): TreeNode[] {
+  const root: TreeNode = { name: '', path: '', isDir: true, children: [] }
+
+  for (const f of files) {
+    // normalize separators and skip .gitkeep
+    const parts = f.replace(/\\/g, '/').split('/').filter(Boolean)
+    if (parts[parts.length - 1] === '.gitkeep') continue
+    let cur = root
+    for (let i = 0; i < parts.length; i++) {
+      const part = parts[i]
+      const isLast = i === parts.length - 1
+      const nodePath = parts.slice(0, i + 1).join('/')
+      let child = cur.children.find((c) => c.name === part)
+      if (!child) {
+        child = { name: part, path: nodePath, isDir: !isLast, children: [] }
+        cur.children.push(child)
+      }
+      if (!isLast) child.isDir = true
+      cur = child
+    }
+  }
+
+  // Sort: dirs first, then files, alphabetically
+  const sort = (nodes: TreeNode[]) => {
+    nodes.sort((a, b) => {
+      if (a.isDir !== b.isDir) return a.isDir ? -1 : 1
+      return a.name.localeCompare(b.name)
+    })
+    nodes.forEach((n) => sort(n.children))
+  }
+  sort(root.children)
+  return root.children
+}
+
+// ── Tree node row ─────────────────────────────────────────────────────────────
+function TreeNodeRow({
+  node,
+  depth,
+  onEdit,
+  onDeleteFile,
+  onDeleteDir,
+  onToast,
+}: {
+  node: TreeNode
+  depth: number
+  onEdit: (path: string) => void
+  onDeleteFile: (path: string) => void
+  onDeleteDir: (path: string) => void
+  onToast: (item: Omit<ToastItem, 'id'>) => void
+}) {
+  const [open, setOpen] = useState(true)
+  const [addingItem, setAddingItem] = useState<'file' | 'dir' | null>(null)
+  const [newName, setNewName] = useState('')
+  const createDir = useCreateDir()
+  const uploadMutation = useMutation({
+    mutationFn: async ({ filename, content }: { filename: string; content: string }) =>
+      apiFetch('/api/ingest/http/push', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ filename, content }),
+      }),
+    onSuccess: () => {
+      useQueryClient().invalidateQueries({ queryKey: ['admin', 'ingest', 'files'] })
+    },
+  })
+
+  const indent = depth * 20
+
+  const handleAddConfirm = async () => {
+    const trimmed = newName.trim()
+    if (!trimmed) return
+    const fullPath = node.path ? `${node.path}/${trimmed}` : trimmed
+    try {
+      if (addingItem === 'dir') {
+        await createDir.mutateAsync(fullPath)
+        onToast({ message: `已创建文件夹 ${fullPath}`, type: 'success' })
+      } else {
+        await uploadMutation.mutateAsync({ filename: fullPath, content: '' })
+        onToast({ message: `已创建文件 ${fullPath}`, type: 'success' })
+        onEdit(fullPath)
+      }
+    } catch {
+      onToast({ message: '创建失败', type: 'error' })
+    }
+    setAddingItem(null)
+    setNewName('')
+  }
+
+  const btnStyle: React.CSSProperties = {
+    padding: '1px 8px',
+    border: '1px solid var(--color-border)',
+    borderRadius: 'var(--radius-xs)',
+    background: 'transparent',
+    color: 'var(--color-text-secondary)',
+    fontSize: 'var(--text-xs)',
+    cursor: 'pointer',
+    whiteSpace: 'nowrap',
+  }
+
+  return (
+    <>
+      <div
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          gap: 8,
+          padding: '7px 0',
+          paddingLeft: indent,
+          borderBottom: '1px solid var(--color-border)',
+        }}
+      >
+        {node.isDir ? (
+          <>
+            <span
+              onClick={() => setOpen((v) => !v)}
+              style={{ cursor: 'pointer', fontSize: 'var(--text-sm)', userSelect: 'none', width: 16 }}
+            >
+              {open ? '▾' : '▸'}
+            </span>
+            <span style={{ fontSize: 'var(--text-sm)', fontWeight: 600, color: 'var(--color-text-primary)', flex: 1 }}>
+              📁 {node.name}
+            </span>
+            <button style={btnStyle} onClick={() => { setAddingItem('dir'); setNewName('') }}>+ 文件夹</button>
+            <button style={btnStyle} onClick={() => { setAddingItem('file'); setNewName('') }}>+ 文件</button>
+            <button
+              onClick={() => onDeleteDir(node.path)}
+              style={{ ...btnStyle, border: '1px solid var(--color-error)', color: 'var(--color-error)' }}
+            >
+              删除
+            </button>
+          </>
+        ) : (
+          <>
+            <span style={{ width: 16 }} />
+            <span style={{ fontSize: 'var(--text-sm)', fontFamily: 'monospace', color: 'var(--color-text-primary)', flex: 1 }}>
+              📄 {node.name}
+            </span>
+            <button style={btnStyle} onClick={() => onEdit(node.path)}>预览 / 编辑</button>
+            <button
+              onClick={() => onDeleteFile(node.path)}
+              style={{ ...btnStyle, border: '1px solid var(--color-error)', color: 'var(--color-error)' }}
+            >
+              删除
+            </button>
+          </>
+        )}
+      </div>
+
+      {/* Inline new-item input */}
+      {node.isDir && addingItem && open && (
+        <div
+          style={{
+            display: 'flex', alignItems: 'center', gap: 8,
+            padding: '6px 0', paddingLeft: indent + 36,
+            borderBottom: '1px solid var(--color-border)',
+            background: 'var(--color-surface-secondary)',
+          }}
+        >
+          <span style={{ fontSize: 'var(--text-xs)', color: 'var(--color-text-secondary)' }}>
+            {addingItem === 'dir' ? '📁' : '📄'}
+          </span>
+          <input
+            autoFocus
+            value={newName}
+            onChange={(e) => setNewName(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') handleAddConfirm()
+              if (e.key === 'Escape') { setAddingItem(null); setNewName('') }
+            }}
+            placeholder={addingItem === 'dir' ? '文件夹名称' : '文件名称（如 doc.md）'}
+            style={{
+              flex: 1, fontSize: 'var(--text-sm)', fontFamily: 'monospace',
+              border: '1px solid var(--color-border)', borderRadius: 'var(--radius-xs)',
+              padding: '2px 6px', outline: 'none', background: 'var(--color-bg)',
+            }}
+          />
+          <button style={btnStyle} onClick={handleAddConfirm}>确认</button>
+          <button style={btnStyle} onClick={() => { setAddingItem(null); setNewName('') }}>取消</button>
+        </div>
+      )}
+
+      {node.isDir && open && node.children.map((child) => (
+        <TreeNodeRow
+          key={child.path}
+          node={child}
+          depth={depth + 1}
+          onEdit={onEdit}
+          onDeleteFile={onDeleteFile}
+          onDeleteDir={onDeleteDir}
+          onToast={onToast}
+        />
+      ))}
+    </>
+  )
+}
+
 // ── Uploaded files list ───────────────────────────────────────────────────────
 function FilesList({ onToast }: { onToast: (item: Omit<ToastItem, 'id'>) => void }) {
   const { data, isLoading } = useUploadedFiles()
   const deleteFile = useDeleteFile()
+  const deleteDir = useDeleteDir()
+  const createDir = useCreateDir()
   const [editingFile, setEditingFile] = useState<string | null>(null)
+  const [addingRoot, setAddingRoot] = useState<'file' | 'dir' | null>(null)
+  const [rootNewName, setRootNewName] = useState('')
+  const qc = useQueryClient()
 
-  const handleDelete = async (filename: string) => {
+  const uploadMutation = useMutation({
+    mutationFn: async ({ filename, content }: { filename: string; content: string }) =>
+      apiFetch('/api/ingest/http/push', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ filename, content }),
+      }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['admin', 'ingest', 'files'] }),
+  })
+
+  const handleDeleteFile = async (filename: string) => {
     try {
       await deleteFile.mutateAsync(filename)
       onToast({ message: `已删除 ${filename}`, type: 'success' })
     } catch {
-      onToast({ message: `删除失败`, type: 'error' })
+      onToast({ message: '删除失败', type: 'error' })
     }
   }
 
+  const handleDeleteDir = async (dirname: string) => {
+    try {
+      await deleteDir.mutateAsync(dirname)
+      onToast({ message: `已删除文件夹 ${dirname}`, type: 'success' })
+    } catch {
+      onToast({ message: '删除失败', type: 'error' })
+    }
+  }
+
+  const handleRootAddConfirm = async () => {
+    const trimmed = rootNewName.trim()
+    if (!trimmed) return
+    try {
+      if (addingRoot === 'dir') {
+        await createDir.mutateAsync(trimmed)
+        onToast({ message: `已创建文件夹 ${trimmed}`, type: 'success' })
+      } else {
+        await uploadMutation.mutateAsync({ filename: trimmed, content: '' })
+        onToast({ message: `已创建文件 ${trimmed}`, type: 'success' })
+        setEditingFile(trimmed)
+      }
+    } catch {
+      onToast({ message: '创建失败', type: 'error' })
+    }
+    setAddingRoot(null)
+    setRootNewName('')
+  }
+
+  const tree = buildTree(data?.files ?? [])
+
   return (
     <div style={{ marginBottom: 32 }}>
-      <h2
-        style={{
-          fontSize: 'var(--text-base)',
-          fontWeight: 600,
-          color: 'var(--color-text-secondary)',
-          margin: '0 0 8px',
-          textTransform: 'uppercase',
-          letterSpacing: '0.04em',
-        }}
-      >
-        已上传文件
-      </h2>
+      <div style={{ display: 'flex', alignItems: 'center', marginBottom: 8, gap: 8 }}>
+        <h2
+          style={{
+            fontSize: 'var(--text-base)',
+            fontWeight: 600,
+            color: 'var(--color-text-secondary)',
+            margin: 0,
+            textTransform: 'uppercase',
+            letterSpacing: '0.04em',
+            flex: 1,
+          }}
+        >
+          已上传文件
+        </h2>
+        <button
+          onClick={() => { setAddingRoot('dir'); setRootNewName('') }}
+          style={{
+            padding: '3px 10px',
+            border: '1px solid var(--color-border)',
+            borderRadius: 'var(--radius-xs)',
+            background: 'transparent',
+            color: 'var(--color-text-secondary)',
+            fontSize: 'var(--text-xs)',
+            cursor: 'pointer',
+          }}
+        >
+          + 文件夹
+        </button>
+        <button
+          onClick={() => { setAddingRoot('file'); setRootNewName('') }}
+          style={{
+            padding: '3px 10px',
+            border: '1px solid var(--color-border)',
+            borderRadius: 'var(--radius-xs)',
+            background: 'transparent',
+            color: 'var(--color-text-secondary)',
+            fontSize: 'var(--text-xs)',
+            cursor: 'pointer',
+          }}
+        >
+          + 文件
+        </button>
+      </div>
 
       <div
         style={{
@@ -388,56 +670,69 @@ function FilesList({ onToast }: { onToast: (item: Omit<ToastItem, 'id'>) => void
       >
         {isLoading ? (
           <p style={{ padding: '16px 0', color: 'var(--color-text-secondary)' }}>加载中…</p>
-        ) : !data?.files.length ? (
-          <p style={{ padding: '24px 0', textAlign: 'center', color: 'var(--color-text-secondary)', fontSize: 'var(--text-body)' }}>
-            暂无文件
-          </p>
         ) : (
-          data.files.map((filename) => (
-            <div
-              key={filename}
-              style={{
-                display: 'flex',
-                alignItems: 'center',
-                borderBottom: '1px solid var(--color-border)',
-                padding: '10px 0',
-                gap: 12,
-              }}
-            >
-              <span style={{ flex: 1, fontSize: 'var(--text-sm)', fontFamily: 'monospace', color: 'var(--color-text-primary)' }}>
-                {filename}
-              </span>
-              <button
-                onClick={() => setEditingFile(filename)}
+          <>
+            {/* Root-level new item input */}
+            {addingRoot && (
+              <div
                 style={{
-                  padding: '3px 12px',
-                  border: '1px solid var(--color-border)',
-                  borderRadius: 'var(--radius-xs)',
-                  background: 'transparent',
-                  color: 'var(--color-text-secondary)',
-                  fontSize: 'var(--text-xs)',
-                  cursor: 'pointer',
+                  display: 'flex', alignItems: 'center', gap: 8,
+                  padding: '6px 0',
+                  borderBottom: '1px solid var(--color-border)',
+                  background: 'var(--color-surface-secondary)',
                 }}
               >
-                预览 / 编辑
-              </button>
-              <button
-                onClick={() => handleDelete(filename)}
-                disabled={deleteFile.isPending}
-                style={{
-                  padding: '3px 12px',
-                  border: '1px solid var(--color-error)',
-                  borderRadius: 'var(--radius-xs)',
-                  background: 'transparent',
-                  color: 'var(--color-error)',
-                  fontSize: 'var(--text-xs)',
-                  cursor: 'pointer',
-                }}
-              >
-                删除
-              </button>
-            </div>
-          ))
+                <span style={{ fontSize: 'var(--text-xs)', color: 'var(--color-text-secondary)' }}>
+                  {addingRoot === 'dir' ? '📁' : '📄'}
+                </span>
+                <input
+                  autoFocus
+                  value={rootNewName}
+                  onChange={(e) => setRootNewName(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') handleRootAddConfirm()
+                    if (e.key === 'Escape') { setAddingRoot(null); setRootNewName('') }
+                  }}
+                  placeholder={addingRoot === 'dir' ? '文件夹名称' : '文件名称（如 doc.md）'}
+                  style={{
+                    flex: 1, fontSize: 'var(--text-sm)', fontFamily: 'monospace',
+                    border: '1px solid var(--color-border)', borderRadius: 'var(--radius-xs)',
+                    padding: '2px 6px', outline: 'none', background: 'var(--color-bg)',
+                  }}
+                />
+                <button
+                  onClick={handleRootAddConfirm}
+                  style={{ padding: '1px 8px', border: '1px solid var(--color-border)', borderRadius: 'var(--radius-xs)', background: 'transparent', fontSize: 'var(--text-xs)', cursor: 'pointer' }}
+                >
+                  确认
+                </button>
+                <button
+                  onClick={() => { setAddingRoot(null); setRootNewName('') }}
+                  style={{ padding: '1px 8px', border: '1px solid var(--color-border)', borderRadius: 'var(--radius-xs)', background: 'transparent', fontSize: 'var(--text-xs)', cursor: 'pointer' }}
+                >
+                  取消
+                </button>
+              </div>
+            )}
+
+            {tree.length === 0 && !addingRoot ? (
+              <p style={{ padding: '24px 0', textAlign: 'center', color: 'var(--color-text-secondary)', fontSize: 'var(--text-body)' }}>
+                暂无文件
+              </p>
+            ) : (
+              tree.map((node) => (
+                <TreeNodeRow
+                  key={node.path}
+                  node={node}
+                  depth={0}
+                  onEdit={setEditingFile}
+                  onDeleteFile={handleDeleteFile}
+                  onDeleteDir={handleDeleteDir}
+                  onToast={onToast}
+                />
+              ))
+            )}
+          </>
         )}
       </div>
 
