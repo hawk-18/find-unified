@@ -22,11 +22,18 @@ interface McpEntry {
   timeout_ms?: number
 }
 
+interface DbEntry {
+  name?: string
+  enabled?: boolean
+  url?: string
+}
+
 interface SourceConfig {
   local?: { enabled?: boolean; roots?: string[]; max_files?: number; max_snippets?: number }
   mcp?: { enabled?: boolean; endpoint?: string; timeout_ms?: number }
   mcpList?: McpEntry[]
   db?: { enabled?: boolean; url?: string }
+  dbList?: DbEntry[]
   fusion?: { weights?: { local?: number; mcp?: number; db?: number }; top_k_default?: number }
 }
 
@@ -403,37 +410,21 @@ async function findMcp(
   }
 }
 
-// ─── SQLite search ────────────────────────────────────────────────────────────
+// ─── SQLite search (single entry) ────────────────────────────────────────────
 
-async function findSqlite(
+async function findSqliteEntry(
   query: string,
-  cfg: SourceConfig
-): Promise<{ status: SourceStatus; evidence: Evidence[] }> {
-  const start = nowMs()
-  const dbCfg = cfg.db
-
-  if (!dbCfg?.enabled) {
-    return {
-      status: { source: 'db', status: 'unavailable', message: 'db source disabled', latency_ms: 0 },
-      evidence: [],
-    }
-  }
-
-  const dbUrl = dbCfg.url ?? process.env.DATABASE_URL ?? ''
+  dbUrl: string,
+  weight: number,
+  idPrefix: string
+): Promise<Evidence[]> {
   const dbPath = dbUrl.replace(/^file:/, '')
-
-  if (!dbPath) {
-    return {
-      status: { source: 'db', status: 'degraded', message: '未配置 SQLite 路径', latency_ms: nowMs() - start },
-      evidence: [],
-    }
-  }
+  if (!dbPath) return []
 
   try {
     const db = new Database(dbPath, { readonly: true })
     const keywords = extractKeywords(query)
 
-    // Build vocab from DB content and expand with fuzzy correction
     const dbVocab = new Set<string>()
     try {
       const allRows = db.prepare('SELECT title, content, tags FROM knowledge_articles LIMIT 500').all() as Array<{ title: string; content: string; tags: string }>
@@ -446,8 +437,6 @@ async function findSqlite(
     const expandedKeywords = expandWithFuzzy(keywords, dbVocab)
 
     const evidence: Evidence[] = []
-
-    // Search knowledge_articles
     const whereClauses = expandedKeywords.map(() => `(title LIKE ? OR content LIKE ?)`).join(' OR ')
     const params = expandedKeywords.flatMap((kw) => [`%${kw}%`, `%${kw}%`])
 
@@ -459,13 +448,12 @@ async function findSqlite(
       for (const row of rows) {
         const score = scoreSnippet(`${row.title} ${row.content}`, expandedKeywords)
         if (score <= 0) continue
-        const snippet = row.content.slice(0, 300)
         evidence.push({
-          id: `db-${evidence.length + 1}`,
+          id: `${idPrefix}-${evidence.length + 1}`,
           source_type: 'db',
           title: row.title,
-          snippet,
-          score: Number((score * (cfg.fusion?.weights?.db ?? 1.0)).toFixed(2)),
+          snippet: row.content.slice(0, 300),
+          score: Number((score * weight).toFixed(2)),
           source_ref: `db:knowledge_articles/${row.id}`,
         })
       }
@@ -473,6 +461,42 @@ async function findSqlite(
 
     db.close()
     evidence.sort((a, b) => b.score - a.score)
+    return evidence.slice(0, 5)
+  } catch {
+    return []
+  }
+}
+
+// ─── SQLite search ────────────────────────────────────────────────────────────
+
+async function findSqlite(
+  query: string,
+  cfg: SourceConfig
+): Promise<{ status: SourceStatus; evidence: Evidence[] }> {
+  const start = nowMs()
+  const weight = cfg.fusion?.weights?.db ?? 1.0
+
+  // Build list: prefer dbList, fall back to legacy db
+  const entries: DbEntry[] = cfg.dbList?.length
+    ? cfg.dbList
+    : cfg.db ? [cfg.db] : []
+
+  const enabledEntries = entries.filter((e) => e.enabled && e.url)
+
+  if (!enabledEntries.length) {
+    return {
+      status: { source: 'db', status: 'unavailable', message: 'db source disabled', latency_ms: 0 },
+      evidence: [],
+    }
+  }
+
+  try {
+    const results = await Promise.all(
+      enabledEntries.map((e, idx) =>
+        findSqliteEntry(query, e.url!, weight, `db${idx > 0 ? idx + 1 : ''}`)
+      )
+    )
+    const evidence = results.flat().sort((a, b) => b.score - a.score).slice(0, 5)
 
     return {
       status: {
@@ -481,7 +505,7 @@ async function findSqlite(
         message: evidence.length ? `命中 ${evidence.length} 条` : '数据库中未命中相关记录',
         latency_ms: nowMs() - start,
       },
-      evidence: evidence.slice(0, 5),
+      evidence,
     }
   } catch (err) {
     return {

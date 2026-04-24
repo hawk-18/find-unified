@@ -84,6 +84,16 @@ const sqliteBodySchema = z.object({
   enabled: z.boolean(),
 })
 
+const sqliteEntrySchema = z.object({
+  name: z.string().min(1),
+  url: z.string().min(1).refine((v) => v.startsWith('file:'), { message: '必须以 file: 开头' }),
+  enabled: z.boolean(),
+})
+
+const sqliteListBodySchema = z.object({
+  list: z.array(sqliteEntrySchema),
+})
+
 export async function sourcesAdminRoutes(app: FastifyInstance) {
   const preHandler = [authenticate, requireRole(['admin'])]
 
@@ -219,6 +229,58 @@ export async function sourcesAdminRoutes(app: FastifyInstance) {
     })
 
     await writeSourcesJson({ db: { enabled, url } })
+
+    return reply.status(200).send({ ok: true })
+  })
+
+  // GET /sqlite/list — get SQLite list (falls back to legacy db record)
+  app.get('/sqlite/list', { preHandler }, async (_request, reply) => {
+    const config = await prisma.sourceConfig.findUnique({ where: { sourceType: 'db_list' } })
+    if (config) {
+      let list: unknown[] = []
+      try { list = JSON.parse(config.configJson) } catch {}
+      return reply.send({ list })
+    }
+
+    // Migrate from legacy single-db record
+    const legacy = await prisma.sourceConfig.findUnique({ where: { sourceType: 'db' } })
+    if (legacy) {
+      let cfg: Record<string, unknown> = {}
+      try { cfg = JSON.parse(legacy.configJson) } catch {}
+      const url = typeof cfg.url === 'string' ? cfg.url : ''
+      const list = url ? [{ name: 'SQLite', url, enabled: legacy.enabled }] : []
+      return reply.send({ list })
+    }
+
+    return reply.send({ list: [] })
+  })
+
+  // PUT /sqlite/list — replace full SQLite list
+  app.put('/sqlite/list', { preHandler }, async (request, reply) => {
+    const parsed = sqliteListBodySchema.safeParse(request.body)
+    if (!parsed.success) {
+      return reply.status(400).send({ error: 'Invalid request', details: parsed.error.issues })
+    }
+    const { list } = parsed.data
+    const configJson = JSON.stringify(list)
+
+    await prisma.sourceConfig.upsert({
+      where: { sourceType: 'db_list' },
+      update: { enabled: true, configJson, updatedBy: request.user!.userId },
+      create: { sourceType: 'db_list', enabled: true, configJson, updatedBy: request.user!.userId },
+    })
+
+    await prisma.auditLog.create({
+      data: {
+        operatorUserId: request.user!.userId,
+        action: 'update_source_config',
+        targetType: 'source_config',
+        targetId: 'db_list',
+        detailJson: JSON.stringify({ count: list.length }),
+      },
+    })
+
+    await writeSourcesJson({ dbList: list })
 
     return reply.status(200).send({ ok: true })
   })

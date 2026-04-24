@@ -72,6 +72,12 @@ export interface SqliteUpdateBody {
   enabled: boolean
 }
 
+export interface SqliteEntry {
+  name: string
+  url: string
+  enabled: boolean
+}
+
 export function useUpdateSqlite() {
   const qc = useQueryClient()
   return useMutation({
@@ -81,6 +87,25 @@ export function useUpdateSqlite() {
         body: JSON.stringify(body),
       }),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['admin', 'sources', 'sqlite'] }),
+  })
+}
+
+export function useSqliteList() {
+  return useQuery<{ list: SqliteEntry[] }>({
+    queryKey: ['admin', 'sources', 'sqlite', 'list'],
+    queryFn: () => apiFetch('/api/admin/sources/sqlite/list') as Promise<{ list: SqliteEntry[] }>,
+  })
+}
+
+export function useUpdateSqliteList() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (list: SqliteEntry[]) =>
+      apiFetch('/api/admin/sources/sqlite/list', {
+        method: 'PUT',
+        body: JSON.stringify({ list }),
+      }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['admin', 'sources', 'sqlite', 'list'] }),
   })
 }
 

@@ -3,27 +3,18 @@
 import { useEffect, useRef, useState } from 'react'
 import * as Tabs from '@radix-ui/react-tabs'
 import * as Switch from '@radix-ui/react-switch'
-import { useForm } from 'react-hook-form'
-import { zodResolver } from '@hookform/resolvers/zod'
-import { z } from 'zod'
 import {
-  useSqliteConfig,
-  useUpdateSqlite,
   useLocalConfig,
   useUpdateLocalConfig,
   useMcpList,
   useUpdateMcpList,
+  useSqliteList,
+  useUpdateSqliteList,
   type McpEntry,
+  type SqliteEntry,
 } from '@/lib/queries/admin-sources'
 import { useChatStore } from '@/lib/store/chat'
 import { Toast, type ToastItem } from '@/components/Toast'
-
-// ── Zod schemas ──────────────────────────────────────────────────────────────
-const sqliteSchema = z.object({
-  url: z.string().min(1, '必填').refine((v) => v.startsWith('file:'), { message: '必须以 file: 开头' }),
-  enabled: z.boolean(),
-})
-type SqliteForm = z.infer<typeof sqliteSchema>
 
 // ── Shared style helpers ──────────────────────────────────────────────────────
 const fieldLabel: React.CSSProperties = {
@@ -486,106 +477,211 @@ function McpTab({ onToast }: { onToast: (item: Omit<ToastItem, 'id'>) => void })
 
 // ── SQLite Tab ────────────────────────────────────────────────────────────────
 function SqliteTab({ onToast }: { onToast: (item: Omit<ToastItem, 'id'>) => void }) {
-  const { data, isLoading } = useSqliteConfig()
-  const updateSqlite = useUpdateSqlite()
+  const { data, isLoading } = useSqliteList()
+  const updateSqliteList = useUpdateSqliteList()
+  const [list, setList] = useState<SqliteEntry[]>([])
+  const [editing, setEditing] = useState<number | null>(null)
+  const [draft, setDraft] = useState<SqliteEntry>({ name: '', url: 'file:', enabled: true })
   const initialized = useRef(false)
-
-  const {
-    register,
-    handleSubmit,
-    setValue,
-    watch,
-    formState: { errors, isSubmitting },
-  } = useForm<SqliteForm>({
-    resolver: zodResolver(sqliteSchema),
-    defaultValues: { url: 'file:/tmp/find_unified_dev.db', enabled: true },
-  })
-
-  const enabled = watch('enabled')
 
   useEffect(() => {
     if (data && !initialized.current) {
       initialized.current = true
-      setValue('url', (data.config.url as string) ?? 'file:/tmp/find_unified_dev.db')
-      setValue('enabled', data.enabled)
+      setList(data.list ?? [])
     }
-  }, [data, setValue])
+  }, [data])
 
-  const onSubmit = async (values: SqliteForm) => {
+  const openAdd = () => {
+    setDraft({ name: '', url: 'file:', enabled: true })
+    setEditing(-1)
+  }
+
+  const openEdit = (idx: number) => {
+    setDraft({ ...list[idx] })
+    setEditing(idx)
+  }
+
+  const handleDraftSave = () => {
+    if (!draft.name.trim() || !draft.url.trim()) return
+    if (editing === -1) {
+      setList((prev) => [...prev, draft])
+    } else if (editing !== null) {
+      setList((prev) => prev.map((e, i) => (i === editing ? draft : e)))
+    }
+    setEditing(null)
+  }
+
+  const handleDelete = (idx: number) => setList((prev) => prev.filter((_, i) => i !== idx))
+
+  const handleToggle = (idx: number) =>
+    setList((prev) => prev.map((e, i) => (i === idx ? { ...e, enabled: !e.enabled } : e)))
+
+  const handleSave = async () => {
     try {
-      await updateSqlite.mutateAsync(values)
+      await updateSqliteList.mutateAsync(list)
       onToast({ message: '保存成功', type: 'success' })
     } catch {
       onToast({ message: '保存失败', type: 'error' })
     }
   }
 
+  const draftValid = draft.name.trim() !== '' && draft.url.startsWith('file:') && draft.url.length > 5
+
   if (isLoading) {
     return <div style={{ color: 'var(--color-text-secondary)', padding: '24px 0' }}>加载中…</div>
   }
 
   return (
-    <form onSubmit={handleSubmit(onSubmit)} style={{ maxWidth: 480 }}>
-      {/* enabled switch */}
-      <div style={{ ...fieldGroup, display: 'flex', alignItems: 'center', gap: 10 }}>
-        <Switch.Root
-          checked={enabled}
-          onCheckedChange={(v) => setValue('enabled', v)}
+    <div style={{ maxWidth: 560 }}>
+      <p style={{ fontSize: 'var(--text-sm)', color: 'var(--color-text-secondary)', marginBottom: 16 }}>
+        配置一个或多个 SQLite 数据库，检索时并行查询所有已启用的数据库。
+      </p>
+
+      {/* List */}
+      <div style={{ marginBottom: 16 }}>
+        {list.length === 0 && (
+          <p style={{ color: 'var(--color-text-secondary)', fontSize: 'var(--text-sm)', marginBottom: 8 }}>
+            暂无 SQLite 数据源
+          </p>
+        )}
+        {list.map((entry, idx) => (
+          <div
+            key={idx}
+            style={{
+              display: 'flex', alignItems: 'center', gap: 10,
+              padding: '10px 12px', marginBottom: 8,
+              border: '1px solid var(--color-border)', borderRadius: 'var(--radius-sm)',
+              background: 'var(--color-bg)',
+            }}
+          >
+            <Switch.Root
+              checked={entry.enabled}
+              onCheckedChange={() => handleToggle(idx)}
+              style={{
+                width: 34, height: 20, borderRadius: 'var(--radius-full)', border: 'none',
+                background: entry.enabled ? 'var(--color-brand)' : 'var(--color-border)',
+                cursor: 'pointer', position: 'relative', flexShrink: 0,
+              }}
+            >
+              <Switch.Thumb style={{
+                display: 'block', width: 14, height: 14, borderRadius: '50%', background: '#fff',
+                position: 'absolute', top: 3, left: entry.enabled ? 17 : 3, transition: 'left 0.15s',
+              }} />
+            </Switch.Root>
+
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <div style={{ fontSize: 'var(--text-sm)', fontWeight: 600, color: 'var(--color-text-primary)', marginBottom: 2 }}>
+                {entry.name}
+              </div>
+              <div style={{ fontSize: 'var(--text-xs)', fontFamily: 'monospace', color: 'var(--color-text-secondary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                {entry.url}
+              </div>
+            </div>
+
+            <button
+              onClick={() => openEdit(idx)}
+              style={{ padding: '3px 10px', border: '1px solid var(--color-border)', borderRadius: 'var(--radius-xs)', background: 'transparent', fontSize: 'var(--text-xs)', color: 'var(--color-text-secondary)', cursor: 'pointer' }}
+            >
+              编辑
+            </button>
+            <button
+              onClick={() => handleDelete(idx)}
+              style={{ padding: '3px 10px', border: '1px solid var(--color-error)', borderRadius: 'var(--radius-xs)', background: 'transparent', fontSize: 'var(--text-xs)', color: 'var(--color-error)', cursor: 'pointer' }}
+            >
+              删除
+            </button>
+          </div>
+        ))}
+      </div>
+
+      {/* Add button */}
+      {editing === null && (
+        <button
+          onClick={openAdd}
           style={{
-            width: 42,
-            height: 24,
-            borderRadius: 'var(--radius-full)',
-            border: 'none',
-            background: enabled ? 'var(--color-brand)' : 'var(--color-border)',
-            cursor: 'pointer',
-            position: 'relative',
-            flexShrink: 0,
+            marginBottom: 20, padding: '6px 16px',
+            border: '1px solid var(--color-border)', borderRadius: 'var(--radius-sm)',
+            background: 'var(--color-surface-secondary)', fontSize: 'var(--text-body)',
+            color: 'var(--color-text-secondary)', cursor: 'pointer',
           }}
         >
-          <Switch.Thumb
-            style={{
-              display: 'block',
-              width: 18,
-              height: 18,
-              borderRadius: '50%',
-              background: '#fff',
-              position: 'absolute',
-              top: 3,
-              left: enabled ? 21 : 3,
-              transition: 'left 0.15s',
-            }}
-          />
-        </Switch.Root>
-        <span style={{ fontSize: 'var(--text-body)', color: 'var(--color-text-primary)' }}>
-          启用 SQLite 数据源
-        </span>
-      </div>
+          + 添加 SQLite
+        </button>
+      )}
 
-      {/* url */}
-      <div style={fieldGroup}>
-        <label style={fieldLabel}>数据库文件路径</label>
-        <input
-          {...register('url')}
-          style={inputStyle}
-          placeholder="file:/tmp/find_unified_dev.db"
-        />
-        {errors.url && <p style={errorStyle}>{errors.url.message}</p>}
-      </div>
+      {/* Inline edit/add form */}
+      {editing !== null && (
+        <div style={{ marginBottom: 20, padding: 16, border: '1px solid var(--color-brand)', borderRadius: 'var(--radius-sm)', background: 'var(--color-surface-secondary)' }}>
+          <div style={fieldGroup}>
+            <label style={fieldLabel}>名称</label>
+            <input
+              value={draft.name}
+              onChange={(e) => setDraft((d) => ({ ...d, name: e.target.value }))}
+              placeholder="如：业务知识库"
+              style={inputStyle}
+            />
+          </div>
+          <div style={fieldGroup}>
+            <label style={fieldLabel}>数据库文件路径</label>
+            <input
+              value={draft.url}
+              onChange={(e) => setDraft((d) => ({ ...d, url: e.target.value }))}
+              placeholder="file:/data/db/find.db"
+              style={inputStyle}
+            />
+            {draft.url && !draft.url.startsWith('file:') && (
+              <p style={errorStyle}>必须以 file: 开头</p>
+            )}
+          </div>
+          <div style={{ ...fieldGroup, display: 'flex', alignItems: 'center', gap: 8 }}>
+            <Switch.Root
+              checked={draft.enabled}
+              onCheckedChange={(v) => setDraft((d) => ({ ...d, enabled: v }))}
+              style={{
+                width: 34, height: 20, borderRadius: 'var(--radius-full)', border: 'none',
+                background: draft.enabled ? 'var(--color-brand)' : 'var(--color-border)',
+                cursor: 'pointer', position: 'relative', flexShrink: 0,
+              }}
+            >
+              <Switch.Thumb style={{
+                display: 'block', width: 14, height: 14, borderRadius: '50%', background: '#fff',
+                position: 'absolute', top: 3, left: draft.enabled ? 17 : 3, transition: 'left 0.15s',
+              }} />
+            </Switch.Root>
+            <span style={{ fontSize: 'var(--text-sm)', color: 'var(--color-text-primary)' }}>启用</span>
+          </div>
+          <div style={{ display: 'flex', gap: 8 }}>
+            <button
+              onClick={handleDraftSave}
+              disabled={!draftValid}
+              style={{ ...saveBtn, marginTop: 0, opacity: draftValid ? 1 : 0.5 }}
+            >
+              确认
+            </button>
+            <button
+              onClick={() => setEditing(null)}
+              style={{ marginTop: 0, padding: '9px 16px', border: '1px solid var(--color-border)', borderRadius: 'var(--radius-sm)', background: 'transparent', fontSize: 'var(--text-body)', cursor: 'pointer' }}
+            >
+              取消
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* connectivity status */}
-      <div style={{ ...fieldGroup, marginTop: 24 }}>
+      <div style={fieldGroup}>
         <label style={fieldLabel}>连通性状态</label>
         <SourceStatusBadge sourceType="db" />
       </div>
 
       <button
-        type="submit"
-        disabled={isSubmitting}
-        style={isSubmitting ? saveBtnDisabled : saveBtn}
+        onClick={handleSave}
+        disabled={updateSqliteList.isPending}
+        style={{ ...saveBtn, opacity: updateSqliteList.isPending ? 0.6 : 1, cursor: updateSqliteList.isPending ? 'not-allowed' : 'pointer' }}
       >
-        {isSubmitting ? '保存中…' : '保存'}
+        {updateSqliteList.isPending ? '保存中…' : '保存'}
       </button>
-    </form>
+    </div>
   )
 }
 
