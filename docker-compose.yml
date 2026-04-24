@@ -1,69 +1,33 @@
 services:
-  find-core:
+  app:
     build:
       context: .
       dockerfile: Dockerfile
-      target: find-core
-    environment:
-      FIND_CORE_PORT: "8787"
-      FIND_CONFIG_PATH: /data/config/sources.json
-    volumes:
-      - docs_data:/data/docs
-      - config_data:/data/config
-      - db_data:/data/db
-    ports:
-      - "8787:8787"
-
-  mcp-mock:
-    build:
-      context: .
-      dockerfile: Dockerfile
-      target: mcp-mock
-    environment:
-      MCP_PORT: "9090"
-    ports:
-      - "9090:9090"
-
-  api:
-    build:
-      context: .
-      dockerfile: Dockerfile
-      target: api
+      args:
+        NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://localhost:3001}
     environment:
       NODE_ENV: production
       API_PORT: "3001"
+      FIND_CORE_PORT: "8787"
+      MCP_PORT: "9090"
+      PORT: "3000"
       DATABASE_URL: file:/data/db/find_unified.db
-      FIND_CORE_URL: http://find-core:8787
+      FIND_CORE_URL: http://127.0.0.1:8787
       FIND_CONFIG_PATH: /data/config/sources.json
       SYNC_HTTP_DIR: /data/docs
       INGEST_TOKEN: ${INGEST_TOKEN:-ingest-dev-token}
       ANTHROPIC_AUTH_TOKEN: ${ANTHROPIC_AUTH_TOKEN}
       ANTHROPIC_BASE_URL: ${ANTHROPIC_BASE_URL}
+      NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://localhost:3001}
     volumes:
       - db_data:/data/db
       - docs_data:/data/docs
       - config_data:/data/config
       - skills_data:/app/apps/api/skills
     ports:
-      - "3001:3001"
-    depends_on:
-      - find-core
-      - mcp-mock
-
-  web:
-    build:
-      context: .
-      dockerfile: Dockerfile
-      target: web
-      args:
-        NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://localhost:3001}
-    environment:
-      PORT: "3000"
-      NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://localhost:3001}
-    ports:
       - "3000:3000"
-    depends_on:
-      - api
+      - "3001:3001"
+    restart: unless-stopped
 
 volumes:
   db_data:

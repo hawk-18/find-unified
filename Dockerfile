@@ -1,16 +1,14 @@
 # =============================================================================
-# find-unified 统一 Dockerfile
-# 用法：--target 指定服务
-#   docker build --target api       -t find-unified/api       .
-#   docker build --target web       -t find-unified/web       .
-#   docker build --target find-core -t find-unified/find-core .
-#   docker build --target mcp-mock  -t find-unified/mcp-mock  .
+# find-unified 单镜像 Dockerfile
+# 将 api / web / find-core / mcp-mock 四个服务打包进一个容器
+# 用法：
+#   docker build -t find-unified .
+#   docker run -p 3000:3000 -p 3001:3001 find-unified
 # =============================================================================
 
 # ── 公共基础层 ────────────────────────────────────────────────────────────────
 FROM node:22-alpine AS base
 RUN npm install -g pnpm@10.33.0
-# better-sqlite3 需要原生编译工具；openssl/libc6-compat 供 Prisma；sqlite-libs 供 better-sqlite3
 RUN apk add --no-cache python3 make g++ openssl libc6-compat sqlite-libs
 
 # ── 依赖层 ────────────────────────────────────────────────────────────────────
@@ -26,8 +24,8 @@ RUN pnpm install --frozen-lockfile
 # ── 构建层 ────────────────────────────────────────────────────────────────────
 FROM deps AS builder
 WORKDIR /app
-COPY apps/api        ./apps/api
-COPY apps/web        ./apps/web
+COPY apps/api           ./apps/api
+COPY apps/web           ./apps/web
 COPY services/find-core ./services/find-core
 COPY services/mcp-mock  ./services/mcp-mock
 
@@ -44,64 +42,56 @@ RUN pnpm --filter @find-unified/web build
 RUN pnpm --filter @find-unified/find-core build
 
 # =============================================================================
-# ── 运行目标：api ─────────────────────────────────────────────────────────────
-FROM base AS api
+# ── 最终单镜像 ────────────────────────────────────────────────────────────────
+FROM base AS final
 WORKDIR /app
+
+# ── 安装生产依赖（所有服务合并） ──────────────────────────────────────────────
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml .npmrc ./
-COPY apps/api/package.json ./apps/api/
-RUN pnpm install --frozen-lockfile --filter @find-unified/api... --prod
-COPY --from=builder /app/apps/api/dist              ./apps/api/dist
+COPY apps/api/package.json           ./apps/api/
+COPY apps/web/package.json           ./apps/web/
+COPY services/find-core/package.json ./services/find-core/
+COPY services/mcp-mock/package.json  ./services/mcp-mock/
+RUN pnpm install --frozen-lockfile --prod
+
+# ── api ──────────────────────────────────────────────────────────────────────
+COPY --from=builder /app/apps/api/dist                 ./apps/api/dist
 COPY --from=builder /app/apps/api/node_modules/.prisma ./apps/api/node_modules/.prisma
 COPY apps/api/prisma ./apps/api/prisma
-# 默认 sources.json（config volume 为空时使用）
-COPY services/find-core/config/sources.json /app/default-sources.json
-# skills 目录挂载到容器，这里建好空目录
+
+# ── web (Next.js standalone) ─────────────────────────────────────────────────
+# standalone 输出在 /app/apps/web/.next/standalone，server.js 在其根目录
+COPY --from=builder /app/apps/web/.next/standalone     ./web-standalone
+COPY --from=builder /app/apps/web/.next/static         ./web-standalone/.next/static
+COPY --from=builder /app/apps/web/public               ./web-standalone/public
+
+# ── find-core ─────────────────────────────────────────────────────────────────
+COPY --from=builder /app/services/find-core/dist       ./services/find-core/dist
+COPY services/find-core/config/sources.json            ./default-sources.json
+
+# ── mcp-mock（tsx 直接运行源码） ──────────────────────────────────────────────
+COPY services/mcp-mock/src ./services/mcp-mock/src
+
+# ── 数据目录 ──────────────────────────────────────────────────────────────────
 RUN mkdir -p /data/docs /data/db /data/config /app/apps/api/skills
-WORKDIR /app/apps/api
-EXPOSE 3001
-# 启动时：若 config volume 中无 sources.json 则写入默认值，再执行迁移和启动
-CMD ["sh", "-c", "\
-  [ ! -f /data/config/sources.json ] && cp /app/default-sources.json /data/config/sources.json; \
-  npx prisma migrate deploy && node dist/index.js \
-"]
 
-# ── 运行目标：web ─────────────────────────────────────────────────────────────
-FROM node:22-alpine AS web
-WORKDIR /app
-# standalone 已包含 server.js 及所有 node_modules，直接拷贝
-COPY --from=builder /app/apps/web/.next/standalone  ./
-# 静态资源和 public 需额外拷贝到对应路径
-COPY --from=builder /app/apps/web/.next/static      ./.next/static
-COPY --from=builder /app/apps/web/public            ./public
-EXPOSE 3000
-ENV PORT=3000
-CMD ["node", "server.js"]
+# ── 暴露端口 ──────────────────────────────────────────────────────────────────
+EXPOSE 3000 3001 8787 9090
 
-# ── 运行目标：find-core ───────────────────────────────────────────────────────
-FROM base AS find-core
-WORKDIR /app
-COPY package.json pnpm-lock.yaml pnpm-workspace.yaml .npmrc ./
-COPY services/find-core/package.json ./services/find-core/
-RUN pnpm install --frozen-lockfile --filter @find-unified/find-core... --prod
-COPY --from=builder /app/services/find-core/dist ./services/find-core/dist
-# 默认配置内嵌镜像，volume 为空时复制到挂载路径
-COPY services/find-core/config/sources.json /app/default-sources.json
-RUN mkdir -p /data/docs /data/config
-WORKDIR /app/services/find-core
-EXPOSE 8787
-# 启动时：若 config volume 中无 sources.json 则写入默认值
-CMD ["sh", "-c", "\
-  [ ! -f /data/config/sources.json ] && cp /app/default-sources.json /data/config/sources.json; \
-  node dist/index.js \
-"]
+# ── 环境变量默认值 ────────────────────────────────────────────────────────────
+ENV NODE_ENV=production \
+    API_PORT=3001 \
+    FIND_CORE_PORT=8787 \
+    MCP_PORT=9090 \
+    PORT=3000 \
+    FIND_CORE_URL=http://127.0.0.1:8787 \
+    FIND_CONFIG_PATH=/data/config/sources.json \
+    SYNC_HTTP_DIR=/data/docs \
+    DATABASE_URL=file:/data/db/find_unified.db \
+    INGEST_TOKEN=ingest-dev-token
 
-# ── 运行目标：mcp-mock ────────────────────────────────────────────────────────
-FROM base AS mcp-mock
-WORKDIR /app
-COPY package.json pnpm-lock.yaml pnpm-workspace.yaml .npmrc ./
-COPY services/mcp-mock/package.json ./services/mcp-mock/
-RUN pnpm install --frozen-lockfile --filter @find-unified/mcp-mock...
-COPY services/mcp-mock ./services/mcp-mock
-WORKDIR /app/services/mcp-mock
-EXPOSE 9090
-CMD ["node_modules/.bin/tsx", "src/index.ts"]
+# ── 启动脚本 ──────────────────────────────────────────────────────────────────
+COPY docker-entrypoint.sh /docker-entrypoint.sh
+RUN chmod +x /docker-entrypoint.sh
+
+CMD ["/docker-entrypoint.sh"]
