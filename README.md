@@ -221,44 +221,6 @@ Web 前端已自动使用 admin token，无需手动配置。
 
 ---
 
-## 使用指南
-
-### 聊天界面（localhost:3000）
-
-- 左侧边栏：会话历史，支持搜索和删除
-- 右上角：跳转管理后台
-- 直接输入问题即可检索，支持多轮对话
-- 回答下方展示引用来源（文件路径 / MCP / 数据库记录）
-
-### 上传文档
-
-通过管理后台 `localhost:3000/admin/sync` 上传 `.md` 文件，文件保存后立即可被检索。
-
-也可通过 API 直接推送：
-
-```http
-POST /api/ingest/http/push
-Authorization: Bearer mock-admin-token-find-unified
-Content-Type: application/json
-
-{
-  "filename": "my-doc.md",
-  "content": "# 文档标题\n正文内容..."
-}
-```
-
-### 数据源配置（localhost:3000/admin/sources）
-
-- **local**：自动扫描 `SYNC_HTTP_DIR` 目录下所有 `.md` 文件
-- **MCP**：填写实现了 `find_search(query, top_k)` 工具的 MCP 服务地址
-- **SQLite**：填写包含 `knowledge_articles` 表的数据库路径（`file:/path/to/db`）
-
-配置保存后同步写入 `sources.json`，find-core 下次检索时生效。
-
----
-
-
-
 ## 数据源详解
 
 ### local 源
